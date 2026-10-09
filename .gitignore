@@ -1,0 +1,32 @@
+# ============================================================
+# Registro local de problemas e incidencias
+# Se documentan aquí durante el desarrollo, pero NO van al repo.
+# ============================================================
+PROBLEMAS.md
+problemas/
+*.problemas.md
+
+# ============================================================
+# Dependencias y artefactos de build
+# ============================================================
+node_modules/
+dist/
+out/
+coverage/
+*.vsix
+*.vsixmanifest
+
+# ============================================================
+# OpenCode
+# ============================================================
+.opencode/log/
+.opencode/cache/
+
+# ============================================================
+# Sistema / editores
+# ============================================================
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+*.local

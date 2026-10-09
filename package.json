@@ -1,0 +1,136 @@
+{
+  "name": "opencode-vscode-chat",
+  "displayName": "OpenCode Chat (Side Bar)",
+  "description": "Terminal efímera con el TUI oficial de OpenCode, junto al chat en la Secondary Side Bar.",
+  "version": "0.0.1",
+  "publisher": "JosueRZS",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "opencode",
+    "ai",
+    "agent",
+    "terminal",
+    "chat"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "opencodeChat.launch",
+        "title": "OpenCode: Launch OpenCode Chat",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "opencodeChat.focus",
+        "title": "OpenCode: Focus Terminal"
+      },
+      {
+        "command": "opencodeChat.newSession",
+        "title": "OpenCode: New Session"
+      },
+      {
+        "command": "opencodeChat.sendSelection",
+        "title": "OpenCode: Send Selection to Agent"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "opencodeChat.launch",
+        "key": "ctrl+alt+o",
+        "mac": "cmd+alt+o",
+        "linux": "ctrl+alt+o"
+      },
+      {
+        "command": "opencodeChat.newSession",
+        "key": "ctrl+alt+n",
+        "mac": "cmd+alt+n",
+        "linux": "ctrl+alt+n"
+      },
+      {
+        "command": "opencodeChat.sendSelection",
+        "key": "ctrl+alt+enter",
+        "mac": "cmd+alt+enter",
+        "linux": "ctrl+alt+enter"
+      }
+    ],
+    "configuration": {
+      "title": "OpenCode Chat",
+      "properties": {
+        "opencodeChat.cliPath": {
+          "type": "string",
+          "default": "opencode",
+          "scope": "machine",
+          "description": "Ruta a la binaria de OpenCode. Vacío = buscar en PATH."
+        },
+        "opencodeChat.terminalCwd": {
+          "type": "string",
+          "default": "${workspaceFolder}",
+          "description": "Directorio de trabajo de la terminal. Soporta ${workspaceFolder} y ~."
+        },
+        "opencodeChat.focusOnLaunch": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enfocar la terminal al lanzarla."
+        },
+        "opencodeChat.disposeOnExit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Eliminar la pestaña de terminal cuando OpenCode termina."
+        },
+        "opencodeChat.chainExit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Encadenar `exit` al lanzar, para que la pestaña se cierre al salir de OpenCode (§7.3)."
+        },
+        "opencodeChat.autoPromptInstall": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ofrecer instalar OpenCode si no se detecta en el PATH."
+        },
+        "opencodeChat.installMethod": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "npm",
+            "script"
+          ],
+          "description": "Método de instalación oficial de OpenCode."
+        }
+      }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "opencodeChat.sendSelection",
+          "group": "opencode@1"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "opencodeChat.launch",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsc --noEmit && esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
+    "check-types": "tsc --noEmit",
+    "vscode:prepublish": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/vscode": "^1.140.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}
