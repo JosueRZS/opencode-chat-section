@@ -228,19 +228,31 @@ function setState(running: boolean): void {
 
 /**
  * P-025/P-028 — Diagnóstico. La barra está **oculta por defecto**: el usuario
- * pidió una sección que sea la terminal, sin chrome. Solo se muestra si la
- * extensión informa de un error real, que es cuando aporta algo.
+ * pidió una sección que sea la terminal, sin chrome.
+ *
+ * Se muestra en tres casos, todos transitorios:
+ *  - `error`: cuando algo va mal de verdad.
+ *  - `checking` / `installing`: la guardia de instalación (P-031), que es
+ *    exactamente el "paso a paso" que pidió el usuario — comprobar → ofrecer
+ *    instalar → instalar → arrancar. Sin esto, la sección estaría muda
+ *    durante minutos mientras npm instala.
+ *  - `starting` solo lleva spinner, sin texto, para no meter chrome (P-028).
  */
 const PHASE_LABEL: Record<string, string> = {
   error: "Error:",
+  checking: "Comprobando OpenCode…",
+  installing: "Instalando OpenCode…",
 };
+
+/** Fases donde la sección está en silencio: solo terminal (P-028). */
+const SILENT_PHASES = new Set(["idle", "starting", "running", "exited"]);
 
 function setStatus(phase: string, detail: string): void {
   const label = PHASE_LABEL[phase] ?? "";
   statusText.textContent = detail ? `${label} ${detail}` : label;
   statusEl.dataset.phase = phase;
-  statusEl.classList.toggle("hidden", phase !== "error");
-  spinner.classList.toggle("hidden", phase !== "starting");
+  statusEl.classList.toggle("hidden", SILENT_PHASES.has(phase));
+  spinner.classList.toggle("hidden", phase !== "starting" && phase !== "installing");
 }
 
 // P-025: la pestaña Salida estándar de VS Code (View → Output → "OpenCode Chat").

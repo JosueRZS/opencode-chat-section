@@ -9,6 +9,7 @@ import {
 } from "../utils/shell";
 import { STATUS_VIEW_ID } from "../utils/placement";
 import { stamp } from "../utils/log";
+import { ensureOpencodeAvailable } from "../utils/opencodeInstall";
 import type { FileLog } from "../utils/filelog";
 import { PtyHostClient } from "./PtyHostClient";
 
@@ -32,6 +33,8 @@ import { PtyHostClient } from "./PtyHostClient";
  */
 export class OpenCodePty implements vscode.Disposable {
   private running = false;
+  /** Fase 3: ya se está comprobando/instalando ⇒ no lanzar dos veces (P-031). */
+  private preparing = false;
   private pid: number | undefined;
 
   private readonly stateEmitter = new vscode.EventEmitter<void>();
@@ -120,13 +123,50 @@ export class OpenCodePty implements vscode.Disposable {
   /**
    * §1.1 + §4: lanza OpenCode dentro de una PTY. Si ya corre, no hace nada
    * (una sola instancia, §7.4) — el foco lo resuelve `focus()`.
+   *
+   * **Fase 3 (P-031)**: antes de arrancar se comprueba que `opencode` exista; si no,
+   * se ofrece instalarlo. El arranque se aplaza SOLO mientras dura esa guardía
+   * (comprobación + modal + instalación), que puede tardar minutos. Es asincrónico
+   * y con `preparing` para que un segundo lanzamiento no duplique el arranque.
    */
   launch(): void {
     if (this.running) {
       this.setStatus("running", "ya hay una instancia en marcha");
       return;
     }
+    if (this.preparing) {
+      this.trace("[launch]", "ignorado: ya se está comprobando/instalando");
+      return;
+    }
 
+    this.preparing = true;
+    void this.ensureAndLaunch();
+  }
+
+  private async ensureAndLaunch(): Promise<void> {
+    try {
+      await ensureOpencodeAvailable(this.output, this.fileLog, (phase, detail) =>
+        this.setStatus(phase, detail),
+      );
+    } catch (e) {
+      // La guardía nunca debe impedir el arranque: se lanza igualmente (P-028).
+      this.trace(
+        "[install]",
+        `guardía de instalación falló: ${e instanceof Error ? e.message : String(e)} — se lanza igualmente`,
+      );
+    } finally {
+      this.preparing = false;
+    }
+
+    // El usuario pudo lanzar manualmente mientras esperábamos.
+    if (this.running) {
+      return;
+    }
+    this.doLaunch();
+  }
+
+  /** El arranque propiamente dicho: la PTY con el comando de OpenCode. */
+  private doLaunch(): void {
     const cfg = vscode.workspace.getConfiguration("opencodeChat");
     this.chainExit = cfg.get<boolean>("chainExit", true);
     const useConptyDll = cfg.get<boolean>("useConptyDll", true);

@@ -70,6 +70,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("opencodeChat.showOutput", () =>
       output.show(true),
     ),
+    // Fase 4 (P-032): un solo atajo que muestra/oculta Chat y OpenCode a la vez.
+    vscode.commands.registerCommand("opencodeChat.toggle", () => toggleChatAndOpenCode(view, output, fileLog)),
   );
 
   // --- Ciclo de vida (§7.3) — la señal es `onExit` de la PTY ---
@@ -80,4 +82,66 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {
   pty?.dispose();
+}
+
+/**
+ * Fase 4 (P-032) — Un solo atajo que muestra/oculta Chat y OpenCode a la vez.
+ *
+ * Las dos vistas viven en la Secondary Side Bar, así que la vía robusta es
+ * alternar esa barra entera (`workbench.action.toggleAuxiliaryBar`, verificado
+ * presente en el workbench de 1.141). No se mueven vistas ni se toca la
+ * visibilidad individual de ninguna: eso es exactamente lo que en P-017 acabó
+ * subiendo la shell del usuario a la barra lateral.
+ *
+ * El único matiz es a dónde va el foco. `toggleAuxiliaryBar` es un alternador
+ * ciego: invierte sin preguntar. Por eso el estado se lee DESPUÉS, no antes.
+ * Mirándolo antes, una sección colapsada dentro de una barra visible contaría
+ * como "oculta"; al alternar la barra (que la OCULTA) acabaríamos enfocándola,
+ * con lo que la devolveríamos a la vista y el atajo haría lo contrario de lo
+ * que se pidió.
+ */
+async function toggleChatAndOpenCode(
+  view: TuiViewProvider | undefined,
+  output: vscode.OutputChannel,
+  fileLog: FileLog,
+): Promise<void> {
+  const before = view?.isVisible ?? false;
+  fileLog.write(`[toggle] antes: visible=${before}`);
+
+  const commands = await vscode.commands.getCommands(true);
+  if (!commands.includes("workbench.action.toggleAuxiliaryBar")) {
+    output.appendLine(`${stamp()} [toggle] workbench.action.toggleAuxiliaryBar no disponible`);
+    fileLog.write("[toggle] comando del workbench ausente");
+    return;
+  }
+
+  await vscode.commands.executeCommand("workbench.action.toggleAuxiliaryBar");
+  const after = await settleVisibility(view);
+  fileLog.write(`[toggle] después: visible=${after}`);
+
+  // Solo al MOSTRAR se enfoca. Si acabamos de ocultar, enfocarla la revelaría.
+  if (after) {
+    view?.focus();
+  }
+}
+
+/**
+ * Espera a que la visibilidad del webview se asiente tras alternar la barra.
+ * El workbench lo aplica al vuelo, pero el webview puede tardar un turno en
+ * reportarlo: se muestrea cada 30 ms y se devuelve al estabilizarse, con un
+ * tope para que un fallo inesperado deje el atajo funcionando igualmente.
+ */
+async function settleVisibility(view: TuiViewProvider | undefined): Promise<boolean> {
+  const deadline = Date.now() + 400;
+  await new Promise<void>(r => setTimeout(r, 50));
+  let previous = view?.isVisible ?? false;
+  while (Date.now() < deadline) {
+    await new Promise<void>(r => setTimeout(r, 30));
+    const current = view?.isVisible ?? false;
+    if (current === previous) {
+      return current;
+    }
+    previous = current;
+  }
+  return view?.isVisible ?? false;
 }

@@ -89,6 +89,12 @@ export function resolveShell(): ShellSpec {
 /**
  * PATH del hijo: añade los directorios estándar de npm global por si el PATH
  * del extension host no los incluye (P-001), y conserva el PATH heredado.
+ *
+ * También `~/.opencode/bin`: es donde instala el script oficial de OpenCode
+ * (`curl -fsSL https://opencode.ai/install | bash`) y **solo** lo añade al PATH
+ * escribiéndolo en los `.bashrc`/`.zshrc` — es decir, afecta a futuros shells,
+ * no al entorno heredado por la PTY. Sin este directorio, la instalación por
+ * script quedaría instalada pero invisible.
  */
 export function envWithPath(): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = { ...process.env };
@@ -104,6 +110,12 @@ export function envWithPath(): Record<string, string | undefined> {
   } else {
     const home = os.homedir();
     extra.push(path.join(home, ".npm-global", "bin"), path.join(home, ".local", "bin"), "/usr/local/bin");
+  }
+
+  // Directorio del instalador oficial (ver comentario de la función).
+  const officialBin = path.join(os.homedir(), ".opencode", "bin");
+  if (fs.existsSync(officialBin)) {
+    extra.push(officialBin);
   }
 
   const current = env.PATH ?? env.Path ?? "";

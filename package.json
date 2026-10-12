@@ -56,6 +56,10 @@
       {
         "command": "opencodeChat.showOutput",
         "title": "OpenCode: Show Output"
+      },
+      {
+        "command": "opencodeChat.toggle",
+        "title": "OpenCode: Toggle Chat + OpenCode"
       }
     ],
     "keybindings": [
@@ -64,6 +68,12 @@
         "key": "ctrl+alt+o",
         "mac": "cmd+alt+o",
         "linux": "ctrl+alt+o"
+      },
+      {
+        "command": "opencodeChat.focus",
+        "key": "ctrl+alt+shift+o",
+        "mac": "cmd+alt+shift+o",
+        "linux": "ctrl+alt+shift+o"
       },
       {
         "command": "opencodeChat.newSession",
@@ -76,6 +86,12 @@
         "key": "ctrl+alt+enter",
         "mac": "cmd+alt+enter",
         "linux": "ctrl+alt+enter"
+      },
+      {
+        "command": "opencodeChat.toggle",
+        "key": "ctrl+alt+k",
+        "mac": "cmd+alt+k",
+        "linux": "ctrl+alt+k"
       }
     ],
     "configuration": {
@@ -135,7 +151,7 @@
         "opencodeChat.autoPromptInstall": {
           "type": "boolean",
           "default": true,
-          "description": "Ofrecer instalar OpenCode si no se detecta en el PATH."
+          "description": "Si no se detecta `opencode` en el PATH, ofrecer instalarlo con un diálogo. Aunque respondas \"No\" (o la instalación falle) la sección se abre igualmente: es una ayuda, no una puerta."
         },
         "opencodeChat.installMethod": {
           "type": "string",
@@ -145,7 +161,7 @@
             "npm",
             "script"
           ],
-          "description": "Método de instalación oficial de OpenCode."
+          "description": "Cómo instalar OpenCode. `npm` → `npm install -g @opencode/cli` (el paquete vigente de la v2; `opencode-ai` está congelado en la v1). `script` → `curl -fsSL https://opencode.ai/install | bash`, solo POSIX — en Windows se recurre a npm. `auto` → npm."
         }
       }
     },

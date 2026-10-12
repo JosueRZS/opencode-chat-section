@@ -237,6 +237,15 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     void vscode.commands.executeCommand(`${STATUS_VIEW_ID}.focus`);
   }
 
+  /**
+   * Fase 4 (P-032): ¿está la sección a la vista? Se consulta DESPUÉS de alternar
+   * la barra, no antes, para no equivocarse si la sección está colapsada dentro
+   * de una barra visible — ese caso se comportaría al revés.
+   */
+  get isVisible(): boolean {
+    return this.view?.visible ?? false;
+  }
+
   private post(msg: OutMsg): void {
     if (!this.ready) {
       return;
