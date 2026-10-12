@@ -50,6 +50,11 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   private readonly subs: vscode.Disposable[] = [];
   /** Suscripciones del webview actual; se descartan si `resolveWebviewView` se repite. */
   private viewSubs: vscode.Disposable[] = [];
+  /** P-037: lotes de `input`; ver `traceInputBurst`. */
+  private inputCount = 0;
+  private inputQuiet: ReturnType<typeof setTimeout> | undefined;
+  /** P-041: solo se informa del primer lote de cada webview. */
+  private inputReported = false;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -91,6 +96,53 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     this.fileLog.write(msg);
   }
 
+  /**
+   * P-037 — `input` es un mensaje de ALTA FRECUENCIA y no conviene trazarlo uno
+   * a uno.
+   *
+   * `term.onData` no es solo teclado. xterm emite por ahí también los reportes
+   * de ratón y de foco cuando el TUI los ha activado, y OpenCode los activa
+   * todos. Secuencia de arranque real, capturada de la PTY:
+   *
+   *   \e[?1000h   ratón: clics
+   *   \e[?1002h   ratón: arrastre
+   *   \e[?1003h   ratón: CUALQUIER movimiento (botón o no)
+   *   \e[?1006h   codificación SGR de lo anterior
+   *   \e[?1004h   informe de foco (\e[I / \e[O)
+   *   \e[?2004h   pegado entre corchetes
+   *
+   * Con el 1003, cada pasada del ratón por la sección es un mensaje `input`; con
+   * el 1004, cada cambio de foco son dos. `trace` escribe en el canal de Salida
+   * Y en el fichero, y ninguno de los dos trunca, así que la traza crecía sin
+   * límite mientras el usuario solo pasaba el cursor por encima.
+   *
+   * Se mantiene la señal de P-025 («¿llega la entrada al canal de mensajes?»)
+   * pero **una sola vez por webview**: la pregunta se contesta con el primer
+   * lote, y seguir imprimiéndola solo añade ruido — con el 1003 activo, cada
+   * pasada del ratón por la sección produce un lote. Al recrearse el webview
+   * (`resolveCount`) se vuelve a preguntar, porque esa es precisamente la
+   * ocasión en la que el canal podría haberse perdido.
+   */
+  private traceInputBurst(): void {
+    this.inputCount++;
+    if (this.inputQuiet) {
+      clearTimeout(this.inputQuiet);
+    }
+    this.inputQuiet = setTimeout(() => {
+      const n = this.inputCount;
+      this.inputCount = 0;
+      this.inputQuiet = undefined;
+      if (this.inputReported) {
+        return;
+      }
+      this.inputReported = true;
+      this.trace(
+        `[view] entrada del TUI confirmada: ${n} mensajes por onData ` +
+          `(lote inicial; con el ratón 1003 activo siguen llegando, sin registrarlas)`,
+      );
+    }, 1000);
+  }
+
   resolveWebviewView(view: vscode.WebviewView): void {
     // P-025: nº de resoluciones. Si es >1, la vista se recreó (moveViews): hay
     // que re-sincronizar estado o el panel se quedaría clavado en "arrancando".
@@ -98,6 +150,8 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     this.trace(
       `[view] resolveWebviewView #${this.resolveCount} (ready previo=${this.ready})`,
     );
+    // El canal se vuelve a preguntar en cada webview nuevo (P-041).
+    this.inputReported = false;
 
     // Si la vista se recrea (drag fuera y vuelta, o reload del contenedor),
     // descartar las suscripciones de la anterior para no duplicar mensajes.
@@ -121,7 +175,12 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       view.webview.onDidReceiveMessage((msg: InMsg) => {
         // P-025: traza de TODO lo que entra, en la pestaña Salida. Si el clic
         // del usuario no aparece aquí, el fallo es del canal de mensajes.
-        this.trace(`[view] mensaje recibido: ${msg?.type ?? "(sin type)"}`);
+        // P-037: `input` va aparte — es el único tipo de alta frecuencia.
+        if (msg?.type === "input") {
+          this.traceInputBurst();
+        } else {
+          this.trace(`[view] mensaje recibido: ${msg?.type ?? "(sin type)"}`);
+        }
         switch (msg?.type) {
           case "ready": {
             this.ready = true;
@@ -339,6 +398,10 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       d.dispose();
     }
     this.viewSubs = [];
+    if (this.inputQuiet) {
+      clearTimeout(this.inputQuiet);
+      this.inputQuiet = undefined;
+    }
   }
 }
 

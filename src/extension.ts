@@ -2,7 +2,12 @@ import * as vscode from "vscode";
 import { OpenCodePty } from "./terminal/OpenCodePty";
 import { TuiViewProvider } from "./views/TuiView";
 import { sendSelection } from "./commands/context";
-import { restoreTerminalView, ensureStatusViewInChat, restoreViewOrder } from "./utils/placement";
+import {
+  restoreTerminalView,
+  ensureStatusViewInChat,
+  ensureStatusViewVisible,
+  restoreViewOrder,
+} from "./utils/placement";
 import { FileLog } from "./utils/filelog";
 import { stamp } from "./utils/log";
 
@@ -43,7 +48,15 @@ export function activate(context: vscode.ExtensionContext): void {
   // El proveedor va ANTES del `moveViews`: mover la vista antes de haberla
   // declarado obliga al workbench a reconstruirla, y cada reconstrucción es una
   // oportunidad de perder el canal de mensajes webview↔extensión (P-026).
-  void ensureStatusViewInChat(output, context.globalState, fileLog);
+  // P-041/P-042: después del movimiento se asegura que la sección esté visible
+  // — el modelo persiste `isHidden` y el arranque lo reproduce sin más. Solo si
+  // el contenedor de Chat ya está, porque `openView` necesita el contenedor.
+  void ensureStatusViewInChat(output, context.globalState, fileLog).then(where => {
+    if (where === "ok") {
+      return ensureStatusViewVisible(output, context.globalState, fileLog);
+    }
+    return undefined;
+  });
   void restoreTerminalView(output, context.globalState, fileLog);
   output.appendLine(`${stamp()} [activate] extensión activada (webview+pty)`);
 
@@ -97,7 +110,7 @@ export function activate(context: vscode.ExtensionContext): void {
       // no-op si la vista ya está en el contenedor, así que una sección
       // arrastrada por encima de Chat seguía arriba mientras el aviso afirmaba
       // lo contrario. Aquí se reescribe `state.order` de verdad.
-      const order = await restoreViewOrder(fileLog);
+      const order = await restoreViewOrder(output, context.globalState, fileLog);
       if (order === "no-focus") {
         void vscode.window.showErrorMessage(
           'OpenCode: la sección está en el contenedor pero no se pudo reordenar. Revisa View → Output → "OpenCode Chat".',
