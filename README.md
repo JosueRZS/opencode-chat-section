@@ -151,6 +151,37 @@ extension host ── spawns ──► dist/pty-host.cjs   (ELECTRON_RUN_AS_NODE
   paints, and the keys you press are the bytes the PTY receives.
 - **Single ephemeral instance.** One PTY, one TUI, one section.
 
+## Tests
+
+```
+npm test
+```
+
+Unit tests over the logic that can be checked without a running editor: shell
+resolution, composer sanitisation, terminal style defaults, the diagnostic file
+log, and the manifest itself. They compile `src/` with `tsc` and run on Node's
+own test runner — no extra dependencies.
+
+`vscode` does not exist outside the extension host, so `tests/register.ts`
+redirects `require("vscode")` to a stub (`tests/support/vscode.ts`) that returns
+canned configuration. That is what lets the real production code run under test
+instead of a re-implementation of it.
+
+What is **not** covered here, on purpose: placing the view inside the Chat
+container and the PTY lifecycle. Both only behave against a real VS Code, and
+mocking the part most likely to break would prove little — those are exercised by
+hand with the Extension Development Host (F5).
+
+Regressions pinned by these tests:
+
+| Test | What it protects |
+| --- | --- |
+| `buildOpencodeCommand` → *NUNCA encadena exit* | Chaining `exit` behind the CLI made OpenCode abort with `Unexpected positional argument`; the TUI never drew. |
+| `manifest` → *la vista* | The view id in `package.json` must equal `STATUS_VIEW_ID`, or the move into the Chat container fails silently. |
+| `vscode.l10n` → *cada mensaje del fuente tiene traducción* | A missing key does not fail the build; it silently falls back to English. |
+| `FileLog` → *lo que se escribe llega íntegro a disco* | The Output channel is asynchronous; the file is the only record that survives a hang. |
+| `manifest` → *no hay eventos onView redundantes* | VS Code generates `onView:` from `contributes.views`; declaring them by hand duplicates activation. |
+
 ## Troubleshooting
 
 **The section does not appear.**

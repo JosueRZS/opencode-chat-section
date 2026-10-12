@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "out",
+    "sourceMap": false
+  },
+  "include": ["src", "tests"],
+  "exclude": ["src/webview", "out", "dist", "node_modules"]
+}

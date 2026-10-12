@@ -1,6 +1,9 @@
 .vscode/**
 src/**
+tests/**
+out/**
 tsconfig.json
+tsconfig.test.json
 tsconfig.webview.json
 PROBLEMAS.md
 plan.md

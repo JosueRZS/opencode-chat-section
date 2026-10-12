@@ -211,6 +211,8 @@
     "build:web": "esbuild src/webview/client.ts --bundle --outfile=dist/webview.js --format=iife --platform=browser --minify --sourcemap",
     "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:node-pty --format=cjs --platform=node --sourcemap --watch",
     "check-types": "tsc --noEmit && tsc -p tsconfig.webview.json",
+    "build:test": "tsc -p tsconfig.test.json",
+    "test": "npm run build:test && node --test \"out/tests/**/*.test.js\"",
     "vscode:prepublish": "npm run build"
   },
   "devDependencies": {
