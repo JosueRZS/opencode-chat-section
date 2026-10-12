@@ -1,12 +1,33 @@
 {
   "name": "opencode-vscode-chat",
   "displayName": "OpenCode Chat (Side Bar)",
-  "description": "Terminal efímera con el TUI oficial de OpenCode, junto al chat en la Secondary Side Bar.",
+  "description": "Runs the official OpenCode CLI in a terminal section stacked right below Copilot Chat.",
   "version": "0.0.1",
   "publisher": "JosueRZS",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JosueRZS/Opencode-Chat-Section.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JosueRZS/Opencode-Chat-Section/issues"
+  },
+  "homepage": "https://github.com/JosueRZS/Opencode-Chat-Section#readme",
   "engines": {
     "vscode": "^1.140.0"
+  },
+  "extensionKind": [
+    "ui"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Lanza el binario `opencode` en una PTY dentro de la carpeta del workspace; no debe ejecutarse en un workspace de confianza restringida."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "Necesita un sistema de archivos local y una terminal PTY real (ConPTY/pty), que no existen en workspaces virtuales del navegador."
+    }
   },
   "categories": [
     "Other"
@@ -20,8 +41,7 @@
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
-    "onStartupFinished",
-    "onView:opencodeChat.status"
+    "onStartupFinished"
   ],
   "contributes": {
     "views": {
