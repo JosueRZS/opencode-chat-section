@@ -35,6 +35,9 @@ const termEl = document.getElementById("terminal") as HTMLDivElement;
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const statusText = document.getElementById("status-text") as HTMLSpanElement;
 const spinner = document.getElementById("spinner") as HTMLSpanElement;
+// P-033: el botón Launch que la sección muestra al terminar la sesión.
+const launchPanel = document.getElementById("launch-panel") as HTMLDivElement;
+const launchBtn = document.getElementById("launch-btn") as HTMLButtonElement;
 
 // --- Colores del tema de VS Code (xterm no los hereda solo) ---
 function cssVar(name: string, fallback: string): string {
@@ -260,6 +263,27 @@ outputBtn.addEventListener("click", () => {
   vscode.postMessage({ type: "showOutput" });
 });
 
+/**
+ * P-033 — El botón Launch.
+ *
+ * La sección vuelve a él tras cada salida visible de la sesión (`/exit` desde
+ * el TUI, o al salir/borrarla), en lugar de relanzarse sola ni quedarse muda.
+ * Mientras está visible, la terminal queda debajo: la sesión ya terminó, así
+ * que no hay nada que escribir en ella.
+ */
+function setLaunchPanel(visible: boolean): void {
+  launchPanel.classList.toggle("hidden", !visible);
+  // La terminal solo tiene sentido con una sesión viva.
+  termEl.classList.toggle("session-over", visible);
+  if (visible) {
+    launchBtn.focus();
+  }
+}
+
+launchBtn.addEventListener("click", () => {
+  vscode.postMessage({ type: "launch" });
+});
+
 window.addEventListener("message", (e: MessageEvent) => {
   const msg = e.data as {
     type: string;
@@ -267,6 +291,7 @@ window.addEventListener("message", (e: MessageEvent) => {
     running?: boolean;
     phase?: string;
     detail?: string;
+    visible?: boolean;
     style?: TerminalStyle;
   };
   switch (msg?.type) {
@@ -280,6 +305,9 @@ window.addEventListener("message", (e: MessageEvent) => {
       break;
     case "status":
       setStatus(msg.phase ?? "idle", msg.detail ?? "");
+      break;
+    case "launchButton":
+      setLaunchPanel(msg.visible === true);
       break;
     case "config":
       if (msg.style) {

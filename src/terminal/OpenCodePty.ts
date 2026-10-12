@@ -58,12 +58,39 @@ export class OpenCodePty implements vscode.Disposable {
 
   /** P-024: si el TUI muere, la PTY debe morir con él (§7.3 `chainExit`). */
   private chainExit = true;
-  /** Escucha de datos usada por `watchPrompt` (se descarta en cada relanzamiento). */
-  private promptListener: vscode.Disposable | undefined;
   /** P-027: si tras el spawn no llega ni un byte, decirlo (nunca un "cargando" mudo). */
   private firstDataTimer: ReturnType<typeof setTimeout> | undefined;
   /** Comando a tecleear en el shell en cuanto la PTY confirme el arranque. */
   private pendingCommand = "";
+
+  /**
+   * P-033 — Detección del fin de sesión por **alternate screen**, no por texto.
+   *
+   * `watchPrompt()` decidía que "vuelve el prompt del shell" con `/[>]\s*$/`
+   * sobre todo el buffer acumulado. Un TUI imprime `>` a cada instante, así que
+   * se armaba a los 1,5 s del arranque (medido) y disparaba `exit` mientras
+   * OpenCode seguía vivo: el comando quedaba encolado en el shell y se aplicaba
+   * después, cuando le daba la gana. El log lo confirma — `exit code=` aparece
+   * **0 veces** en todo el historial: `onPtyExit` nunca corrió.
+   *
+   * La señal correcta es de protocolo, no de texto. Una TUI a pantalla completa
+   * entra en alternate screen con `ESC[?1049h` al arrancar y lo **restaura**
+   * con `ESC[?1049l` al salir. Medido contra OpenCode 2.0.26 real:
+   *  - `1049h` aparece a t+1,8 s (arranque);
+   *  - `1049l` aparece **0,1 s** tras teclear `/exit`;
+   *  - en 30 s de control sin tocar nada, `1049l` **no aparece nunca**.
+   * Por eso `altActive` exige haber visto `1049h` antes: un `1049l` suelto
+   * sin sesión en pantalla no significa nada.
+   */
+  private altActive = false;
+  /** Últimos bytes del chunk anterior: `ESC[?1049h/l` puede partirse entre dos. */
+  private scanTail = "";
+  /** Evita programar dos muertes de la PTY para el mismo fin de sesión. */
+  private exitScheduled = false;
+  /** Tras `1049l` se espera a que la TUI restaure la pantalla antes de matar. */
+  private exitTimer: ReturnType<typeof setTimeout> | undefined;
+  /** P-033: el usuario pidió lanzar mientras la PTY anterior aún se cerraba. */
+  private pendingLaunch = false;
 
   private readonly subs: vscode.Disposable[] = [];
   private readonly client: PtyHostClient;
@@ -131,6 +158,15 @@ export class OpenCodePty implements vscode.Disposable {
    */
   launch(): void {
     if (this.running) {
+      // P-033: si la TUI ya salió y la PTY se está cerrando, el usuario puede
+      // pulsar Launch durante ese hueco. `running` sigue true, así que sin esto
+      // el lanzamiento se descartaría en silencio y el botón volvería a
+      // aparecer sin haber hecho nada.
+      if (this.exitScheduled) {
+        this.pendingLaunch = true;
+        this.trace("[launch]", "la PTY anterior se está cerrando ⇒ lanzamiento aplazado");
+        return;
+      }
       this.setStatus("running", "ya hay una instancia en marcha");
       return;
     }
@@ -178,6 +214,11 @@ export class OpenCodePty implements vscode.Disposable {
     this.pendingCommand = command;
     this.replay = "";
     this.totalBytes = 0;
+    // P-033: cada sesión empieza con el escáner limpio, o un `1049l` heredado
+    // de la anterior mataría la nueva antes de que arrancara.
+    this.altActive = false;
+    this.scanTail = "";
+    this.exitScheduled = false;
 
     this.trace(
       "[launch]",
@@ -201,7 +242,6 @@ export class OpenCodePty implements vscode.Disposable {
       spawnTimeout,
     );
 
-    this.watchPrompt();
     this.stateEmitter.fire();
   }
 
@@ -239,7 +279,61 @@ export class OpenCodePty implements vscode.Disposable {
       this.trace("[pty]", `primer bloque de salida: ${d.length} B`);
       this.setStatus("running", `shell activo, ${d.length} B recibidos`);
     }
+    this.scanAltScreen(d);
     this.dataEmitter.fire(d);
+  }
+
+  /**
+   * P-033 — Busca `ESC[?1049h` (la TUI ocupa la pantalla) y `ESC[?1049l`
+   * (la restaura al salir). Sustituye a la heurística de prompt.
+   *
+   * Se concatenan los últimos bytes del chunk anterior: ConPTY trocea la salida
+   * y la secuencia de 6 caracteres puede partirse entre dos `onData`.
+   *
+   * `1049l` solo se atiende si `altActive` es cierto, es decir, si antes hubo
+   * `1049h`: un `1049l` sin sesión previa no es un fin de sesión.
+   */
+  private scanAltScreen(d: string): void {
+    const hay = this.scanTail + d;
+    if (hay.includes("\u001b[?1049h")) {
+      this.altActive = true;
+      this.trace("[pty]", "TUI entró en alternate screen (ESC[?1049h)");
+    }
+    if (this.altActive && hay.includes("\u001b[?1049l")) {
+      this.altActive = false;
+      this.onTuiLeftScreen();
+    }
+    this.scanTail = hay.slice(-8);
+  }
+
+  /**
+   * P-033 — La TUI terminó: el TUI devolvió el control al shell.
+   *
+   * Se espera un instante a que la TUI restaure la pantalla (entre `1049l` y
+   * el prompt pasan apenas milisegundos, pero matarla antes dejaría la terminal
+   * en el buffer equivocado) y después se cierra la PTY — `chainExit`, pero
+   * disparado por la señal real y no por una regex.
+   *
+   * `onPtyExit` pone `running=false` y emite `exited`, y es la vista quien
+   * decide qué pinta: desde P-033, el botón Launch.
+   */
+  private onTuiLeftScreen(): void {
+    if (this.exitScheduled) {
+      return;
+    }
+    this.exitScheduled = true;
+    this.trace(
+      "[pty]",
+      `TUI salió de alternate screen (ESC[?1049l) tras ${this.totalBytes} B ⇒ cerrando la sesión`,
+    );
+    this.setStatus("exited", "la TUI terminó; devolviendo el control");
+    this.exitTimer = setTimeout(() => {
+      this.exitTimer = undefined;
+      if (this.chainExit && this.running) {
+        this.trace("[pty]", "chainExit: cerrando la PTY tras el fin de la TUI");
+        this.client.kill();
+      }
+    }, 350);
   }
 
   private onPtyExit(exitCode: number, signal: number | null): void {
@@ -249,10 +343,16 @@ export class OpenCodePty implements vscode.Disposable {
     );
     this.running = false;
     this.pid = undefined;
-    this.promptListener?.dispose();
-    this.promptListener = undefined;
     this.setStatus("exited", `el proceso terminó con código ${exitCode}`);
     this.stateEmitter.fire();
+
+    // P-033: si pulsaron Launch mientras esta PTY se cerraba, toca lanzar ahora
+    // — antes `running` seguía true y el intento se habría descartado.
+    if (this.pendingLaunch) {
+      this.pendingLaunch = false;
+      this.trace("[pty]", "lanzamiento aplazado: la PTY anterior terminó ⇒ lanzando");
+      setTimeout(() => this.launch(), 60);
+    }
   }
 
   /**
@@ -262,40 +362,15 @@ export class OpenCodePty implements vscode.Disposable {
    * El comando va en su PROPRIA línea. No se encadena `exit`: el TUI de OpenCode
    * usa Cobra, que parsea cualquier token posterior como argumento posicional
    * (`opencode ; exit` → `Unexpected positional argument: "exit"`) y aborta.
-   * `chainExit` se cumple de otra forma: cuando el TUI termina y vuelve el
-   * prompt del shell, la extensión envía `exit` ella misma (ver `watchPrompt`).
+   *
+   * P-033: `chainExit` ya no se cumple con la heurística de prompt. La TUI
+   * restaura alternate screen al salir (`ESC[?1049l`) y es esa señal —medida
+   * contra OpenCode real: 0,1 s tras `/exit`, y nunca en 30 s de control— la
+   * que cierra la PTY desde `onTuiLeftScreen()`.
    */
   private writeCommand(command: string): void {
     this.trace("[launch]", `escribiendo comando: ${JSON.stringify(command)}`);
     this.client.write(`${command}\r`);
-  }
-
-  /**
-   * P-024 (§7.3 `chainExit`): cuando el TUI termina y el shell vuelve a
-   * imprimir su prompt, la extensión envía `exit` para que la PTY muera
-   * con el TUI y la sección vuelva al botón Launch.
-   */
-  private watchPrompt(): void {
-    if (!this.chainExit) {
-      return;
-    }
-    let armado = false;
-    const timer = setInterval(() => {
-      if (!this.running || armado) {
-        clearInterval(timer);
-        return;
-      }
-      if (/[>]\s*$/.test(this.replay)) {
-        armado = true;
-        clearInterval(timer);
-        this.trace("[pty]", "vuelve el prompt del shell ⇒ enviando exit");
-        setTimeout(() => {
-          if (this.running) {
-            this.client.write("exit\r");
-          }
-        }, 400);
-      }
-    }, 300);
   }
 
   /** §5.1: el foco lo maneja la vista (el webview recibe el teclado). */
@@ -344,8 +419,12 @@ export class OpenCodePty implements vscode.Disposable {
       clearTimeout(this.firstDataTimer);
       this.firstDataTimer = undefined;
     }
-    this.promptListener?.dispose();
-    this.promptListener = undefined;
+    if (this.exitTimer) {
+      clearTimeout(this.exitTimer);
+      this.exitTimer = undefined;
+    }
+    this.exitScheduled = false;
+    this.pendingLaunch = false;
     this.running = false;
     this.pid = undefined;
     for (const d of this.subs) {

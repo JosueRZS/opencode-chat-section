@@ -13,6 +13,7 @@ type InMsg =
   | { type: "input"; data: string }
   | { type: "resize"; cols: number; rows: number }
   | { type: "renderer"; webgl: boolean }
+  | { type: "launch" }
   | { type: "showOutput" };
 
 /** Mensajes extensión → webview. */
@@ -20,7 +21,8 @@ type OutMsg =
   | { type: "data"; data: string }
   | { type: "state"; running: boolean }
   | { type: "status"; phase: string; detail: string }
-  | { type: "config"; style: TerminalStyle };
+  | { type: "config"; style: TerminalStyle }
+  | { type: "launchButton"; visible: boolean };
 
 /**
  * §4 (D7) — La sección "OpenCode" DENTRO del contenedor de Chat, pero ahora
@@ -43,10 +45,8 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   private resolveCount = 0;
   /** P-025: último estado de la PTY; se reenvía al llegar el `ready` del webview. */
   private lastStatus: { phase: string; detail: string } = { phase: "idle", detail: "" };
-  /** P-028: la última sesión llegó a producir salida (evita bucles de relanzado). */
-  private sawData = false;
-  private restarting = false;
-  private disposed = false;
+  /** P-033: estado del botón Launch de la sección. */
+  private launchButtonVisible = false;
   private readonly subs: vscode.Disposable[] = [];
   /** Suscripciones del webview actual; se descartan si `resolveWebviewView` se repite. */
   private viewSubs: vscode.Disposable[] = [];
@@ -59,15 +59,13 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   ) {
     // La PTY escribe → reenviar al webview (si ya está listo).
     this.subs.push(pty.onDidReceiveData(data => {
-      this.sawData = true;
       this.post({ type: "data", data });
     }));
-    // Estado cambia → re-sincronizar y, si la sesión era real, volver a lanzarla
-    // (P-028: la sección ES la terminal, no un lanzador).
+    // Estado cambia → re-sincronizar con la vista (P-033: sin relanzado
+    // automático; la sección vuelve al botón Launch tras cada salida).
     this.subs.push(
       pty.onDidChangeState(() => {
         this.syncState();
-        this.maybeRestart();
       }),
     );
     // P-025: fase real (idle/starting/running/exited/error) → panel + loader.
@@ -76,6 +74,8 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
         this.lastStatus = s;
         this.trace(`[status] ${s.phase} :: ${s.detail}`);
         this.post({ type: "status", phase: s.phase, detail: s.detail });
+        // P-033: al terminar la sesión, la sección vuelve al botón Launch.
+        this.setLaunchButton(s.phase === "exited" || s.phase === "error");
         // Como en el resto de extensiones: si algo FALLA, la pestaña Salida se
         // abre sola y el motivo queda a la vista sin tener que buscarlo.
         if (s.phase === "error") {
@@ -142,7 +142,10 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
               phase: this.lastStatus.phase,
               detail: this.lastStatus.detail,
             });
-            this.trace(`[view] webview listo (replay=${replay.length}B)`);
+            // P-033: el botón Launch es estado persistido en la extensión; si el
+            // webview se recrea, hay que volver a decirle si debe estar a la vista.
+            this.post({ type: "launchButton", visible: this.launchButtonVisible });
+            this.trace(`[view] webview listo (replay=${replay.length}B, launch=${this.launchButtonVisible})`);
             break;
           }
           case "renderer":
@@ -159,6 +162,13 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
             break;
           case "input":
             this.pty.write(msg.data);
+            break;
+          case "launch":
+            // P-033: el botón de la sección. `launch()` corre la guardia de
+            // instalación (P-031) antes de arrancar: si falta OpenCode, primero
+            // aparece el diálogo de instalar sí/no.
+            this.trace("[view] Launch pulsado en la sección");
+            this.pty.launch();
             break;
           case "resize":
             this.pty.resize(msg.cols, msg.rows);
@@ -196,9 +206,24 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     this.autoLaunchIfIdle();
   }
 
-  /** P-028: arranca OpenCode si la sección está vacía y `autoLaunch` está activo. */
+  /**
+   * P-028 → P-033 — Arranca OpenCode la **primera** vez que se abre la sección.
+   *
+   * P-028 pedía que la sección fuese la terminal y arrancara sola; eso se
+   * mantiene. Lo que P-033 cambia es lo que pasa **después** de una salida
+   * visible: ya no se relanza sola, y la sección vuelve al botón Launch
+   * (decisión del usuario: cada salida, no solo los fallos).
+   *
+   * Por eso aquí solo se autoarranca si aún no ha habido una sesión que el
+   * usuario haya terminado — `launchButtonVisible` es el indicador: en cuanto
+   * el TUI salió, la sección queda en manos del botón.
+   */
   private autoLaunchIfIdle(): void {
     if (this.pty.isRunning || !this.autoLaunchEnabled()) {
+      return;
+    }
+    if (this.launchButtonVisible) {
+      this.trace("[view] hay una sesión terminada ⇒ se espera al botón Launch");
       return;
     }
     this.trace("[view] auto-lanzando OpenCode");
@@ -209,32 +234,30 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     return vscode.workspace.getConfiguration("opencodeChat").get<boolean>("autoLaunch", true);
   }
 
-  /**
-   * P-028: cuando el TUI termina, la sección vuelve a lanzarlo — es una terminal
-   * viva, no un lanzador. Solo se relanza si la sesión anterior llegó a producir
-   * salida: si el arranque falló, el error queda a la vista en vez de buclear.
-   */
-  private maybeRestart(): void {
-    if (this.disposed || this.pty.isRunning || this.restarting || !this.sawData) {
-      return;
-    }
-    if (!this.autoLaunchEnabled()) {
-      return;
-    }
-    this.sawData = false;
-    this.restarting = true;
-    this.trace("[view] sesión terminó ⇒ relanzando OpenCode");
-    setTimeout(() => {
-      this.restarting = false;
-      if (!this.disposed && !this.pty.isRunning) {
-        this.pty.launch();
-      }
-    }, 600);
-  }
-
   /** §5.1: enfocar el TUI dentro de la sección. */
   focus(): void {
     void vscode.commands.executeCommand(`${STATUS_VIEW_ID}.focus`);
+  }
+
+  /**
+   * P-033 — Muestra/oculta el botón Launch de la sección.
+   *
+   * El usuario pidió que, tras cada salida visible de la sesión (`/exit` desde
+   * el TUI, o al salir/borrarla), la sección **vuelva al botón Launch** en vez
+   * de relanzarse sola ni quedarse muda. La señal que dispara esto no es texto
+   * — la heurística de prompt se armaba a los 1,5 s del arranque y abortaba
+   * la sesión — sino `ESC[?1049l`, que el TUI emite al restaurar la pantalla.
+   *
+   * `autoLaunchIfIdle()` sigue autoarrancando la **primera** vez que se abre
+   * la sección (P-028); lo que ya no hace es relanzar tras una salida.
+   */
+  private setLaunchButton(visible: boolean): void {
+    if (this.launchButtonVisible === visible) {
+      return;
+    }
+    this.launchButtonVisible = visible;
+    this.post({ type: "launchButton", visible });
+    this.trace(`[view] botón Launch ${visible ? "visible" : "oculto"}`);
   }
 
   /**
@@ -289,12 +312,18 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   <title>OpenCode</title>
 </head>
 <body>
-  <!-- P-028: la sección ES la terminal. Sin botón, sin barra de estado visible.
-       Lo único que puede aparecer es el aviso de error (barra oculta por defecto). -->
+  <!-- P-028: la sección ES la terminal. Sin botón mientras hay sesión; la barra
+       de estado solo aparece en error o durante la guardia de instalación. -->
   <div id="status" class="status hidden">
     <span id="spinner" class="spinner hidden"></span>
     <span id="status-text" class="status-text"></span>
     <button id="output-btn" class="link-btn" title="Abrir View → Output → OpenCode Chat">salida</button>
+  </div>
+  <!-- P-033: la sección vuelve al Launch tras cada salida visible de la sesión.
+       Sin texto explicativo: si OpenCode no está instalado, la guardia de
+       instalación (P-031) ya habla por sí sola cuando se pulsa. -->
+  <div id="launch-panel" class="launch-panel hidden">
+    <button id="launch-btn" class="launch-btn">Launch OpenCode</button>
   </div>
   <div id="terminal" class="terminal"></div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
@@ -303,7 +332,6 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   }
 
   dispose(): void {
-    this.disposed = true;
     for (const d of this.subs) {
       d.dispose();
     }
