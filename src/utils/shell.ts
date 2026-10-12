@@ -163,3 +163,26 @@ export function resolveCwd(value?: string): string | undefined {
   resolved = resolved.trim();
   return resolved.length > 0 ? resolved : undefined;
 }
+
+/**
+ * P-030 — Ajustes TUI de OpenCode aplicados **solo** a la terminal que crea esta
+ * extensión, vía `OPENCODE_CLI_CONFIG_CONTENT`.
+ *
+ * Los ajustes de TUI de OpenCode viven en `~/.config/opencode/cli.json`, que es
+ * **global** para todas sus terminales. `OPENCODE_CLI_CONFIG_CONTENT` permite
+ * superponer valores desde fuera y, según la documentación oficial, se **fusiona
+ * en profundidad** sobre ese fichero (los objetos anidados se mezclan; solo los
+ * arrays y escalares se sustituyen) — así que el tema `one-dark` del usuario se
+ * conserva y solo se cambia lo que aparece aquí.
+ *
+ * `tabs` es la "persistent session tab strip": la barra de pestañas de sesiones
+ * con el título de la sesión y "+ New session" (P-030). El usuario la quiere
+ * fuera de nuestra sección, pero **no** afecta a sus otras terminales.
+ */
+export function opencodeTuiEnv(): Record<string, string> {
+  const raw = vscode.workspace.getConfiguration("opencodeChat").get<string>("tuiTabs", "off");
+  const mode = raw === "auto" || raw === "on" ? raw : "off";
+  return {
+    OPENCODE_CLI_CONFIG_CONTENT: JSON.stringify({ tabs: { mode } }),
+  };
+}

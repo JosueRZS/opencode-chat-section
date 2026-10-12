@@ -5,8 +5,10 @@ body {
   height: 100%;
   margin: 0;
   padding: 0;
-  background: var(--vscode-editor-background, #1e1e1e);
-  color: var(--vscode-foreground, #cccccc);
+  /* Fondo del TERMINAL, no del editor: en algunos temas difieren y el desfase
+     se ve como un borde alrededor del TUI. */
+  background: var(--vscode-terminal-background, var(--vscode-editor-background, #1e1e1e));
+  color: var(--vscode-terminal-foreground, var(--vscode-foreground, #cccccc));
   font-family: var(--vscode-font-family, system-ui, sansospace, sans-serif);
   font-size: var(--vscode-font-size, 13px);
 }
@@ -66,10 +68,7 @@ body {
   }
 }
 
-/* Estado "no lanzado": el botón Launch ocupa el hueco del TUI. */
-.launch {
-  padding: 12px;
-}
+/* P-028: sin botón Launch ni panel de arranque — la sección ES la terminal. */
 
 .link-btn {
   margin-left: auto;
@@ -118,12 +117,16 @@ body {
 }
 
 /* Contenedor del TUI: debe ocupar TODO el alto de la sección para que xterm
-   calcule bien las filas (FitAddon mide este elemento). */
+   calcule bien las filas (FitAddon mide este elemento).
+   P-029: SIN padding. Con `padding: 2px` el área útil era 4px menor y FitAddon
+   calculaba MENOS columnas que la terminal real ⇒ el banner ASCII se partía y
+   aparecía "comprimido". VS Code no aplica padding a su terminal. */
 .terminal {
   height: 100%;
   width: 100%;
   box-sizing: border-box;
-  padding: 2px;
+  padding: 0;
+  overflow: hidden;
 }
 
 .terminal .xterm {

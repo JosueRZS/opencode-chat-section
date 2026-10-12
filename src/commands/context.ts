@@ -43,11 +43,11 @@ export function sanitizeForComposer(text: string): string {
 }
 
 /** `opencodeChat.sendSelection` — inyecta el contexto del editor en el compositor (T7). */
-export async function sendSelection(pty: OpenCodePty): Promise<void> {
+export async function sendSelection(pty: OpenCodePty): Promise<boolean> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
     void vscode.window.showWarningMessage("OpenCode: no hay editor activo.");
-    return;
+    return false;
   }
 
   const ref = sanitizeForComposer(buildFileRef(editor));
@@ -56,6 +56,8 @@ export async function sendSelection(pty: OpenCodePty): Promise<void> {
   }
   if (!pty.sendToComposer(ref)) {
     void vscode.window.showWarningMessage("OpenCode: la terminal no está disponible.");
-    return;
+    return false;
   }
+  // T7: se envía SIN Enter ⇒ el usuario revisa el compositor y lo envía a mano.
+  return true;
 }

@@ -55,9 +55,16 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand("opencodeChat.focus", () => view?.focus()),
     vscode.commands.registerCommand("opencodeChat.newSession", () => pty?.newSession()),
-    vscode.commands.registerCommand("opencodeChat.sendSelection", () =>
-      pty ? sendSelection(pty) : undefined,
-    ),
+    vscode.commands.registerCommand("opencodeChat.sendSelection", async () => {
+      if (!pty) {
+        return;
+      }
+      // T7: la referencia se inyecta SIN Enter ⇒ hay que verla en el compositor.
+      const sent = await sendSelection(pty);
+      if (sent) {
+        view?.focus();
+      }
+    }),
     // P-025: el canal de Salida estándar (View → Output → "OpenCode Chat"),
     // que es como diagnostica cualquier otra extensión.
     vscode.commands.registerCommand("opencodeChat.showOutput", () =>

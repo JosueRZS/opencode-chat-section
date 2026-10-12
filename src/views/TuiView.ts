@@ -3,21 +3,24 @@ import * as path from "path";
 import type { OpenCodePty } from "../terminal/OpenCodePty";
 import type { FileLog } from "../utils/filelog";
 import { STATUS_VIEW_ID } from "../utils/placement";
+import type { TerminalStyle } from "../shared/terminalStyle";
+import { describeTerminalStyle, readTerminalStyle } from "../utils/terminalConfig";
 import { stamp } from "../utils/log";
 
 /** Mensajes webview → extensión. */
 type InMsg =
   | { type: "ready" }
-  | { type: "launch" }
   | { type: "input"; data: string }
   | { type: "resize"; cols: number; rows: number }
+  | { type: "renderer"; webgl: boolean }
   | { type: "showOutput" };
 
 /** Mensajes extensión → webview. */
 type OutMsg =
   | { type: "data"; data: string }
   | { type: "state"; running: boolean }
-  | { type: "status"; phase: string; detail: string };
+  | { type: "status"; phase: string; detail: string }
+  | { type: "config"; style: TerminalStyle };
 
 /**
  * §4 (D7) — La sección "OpenCode" DENTRO del contenedor de Chat, pero ahora
@@ -40,6 +43,10 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   private resolveCount = 0;
   /** P-025: último estado de la PTY; se reenvía al llegar el `ready` del webview. */
   private lastStatus: { phase: string; detail: string } = { phase: "idle", detail: "" };
+  /** P-028: la última sesión llegó a producir salida (evita bucles de relanzado). */
+  private sawData = false;
+  private restarting = false;
+  private disposed = false;
   private readonly subs: vscode.Disposable[] = [];
   /** Suscripciones del webview actual; se descartan si `resolveWebviewView` se repite. */
   private viewSubs: vscode.Disposable[] = [];
@@ -51,9 +58,18 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     private readonly fileLog: FileLog,
   ) {
     // La PTY escribe → reenviar al webview (si ya está listo).
-    this.subs.push(pty.onDidReceiveData(data => this.post({ type: "data", data })));
-    // Estado cambia → el webview alterna entre botón Launch y TUI.
-    this.subs.push(pty.onDidChangeState(() => this.syncState()));
+    this.subs.push(pty.onDidReceiveData(data => {
+      this.sawData = true;
+      this.post({ type: "data", data });
+    }));
+    // Estado cambia → re-sincronizar y, si la sesión era real, volver a lanzarla
+    // (P-028: la sección ES la terminal, no un lanzador).
+    this.subs.push(
+      pty.onDidChangeState(() => {
+        this.syncState();
+        this.maybeRestart();
+      }),
+    );
     // P-025: fase real (idle/starting/running/exited/error) → panel + loader.
     this.subs.push(
       pty.onDidChangeStatus(s => {
@@ -109,6 +125,9 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
         switch (msg?.type) {
           case "ready": {
             this.ready = true;
+            // P-029: la tipografía real de la terminal de VS Code. Va ANTES del
+            // replay para que el TUI se pinte ya con las métricas correctas.
+            this.sendConfig();
             // Repintar con lo acumulado: con `retainContextWhenHidden` el webview
             // puede reabrirse con la TUI ya corriendo.
             const replay = this.pty.replayBuffer;
@@ -126,9 +145,12 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
             this.trace(`[view] webview listo (replay=${replay.length}B)`);
             break;
           }
-          case "launch":
-            // El botón Launch vive dentro del webview (reemplaza el viewsWelcome).
-            this.pty.launch();
+          case "renderer":
+            // P-029: qué renderizador quedó activo. WebGL puede no estar
+            // disponible en un webview; conviene poder verlo, no suponerlo.
+            this.trace(
+              `[view] renderizador: ${msg.webgl ? "WebGL (igual que la terminal de VS Code)" : "DOM (WebGL no disponible en el webview)"}`,
+            );
             break;
           case "showOutput":
             // P-025: lo que pidió el usuario — la Salida estándar de VS Code
@@ -157,7 +179,57 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       }),
     );
 
+    // P-029: si el usuario cambia `terminal.integrated.*` (o de tema), el xterm
+    // de la sección se repinta con la nueva tipografía/paleta sin recrearse.
+    this.viewSubs.push(
+      vscode.workspace.onDidChangeConfiguration(e => {
+        if (e.affectsConfiguration("terminal.integrated") || e.affectsConfiguration("workbench.colorCustomizations") || e.affectsConfiguration("workbench.colorTheme")) {
+          this.trace("[view] terminal.integrated / tema cambiados → reenviando estilo");
+          this.sendConfig();
+        }
+      }),
+    );
+
     this.trace("[view] webview resuelto");
+
+    // P-028: la sección ES la terminal ⇒ si no hay sesión viva, se arranca sola.
+    this.autoLaunchIfIdle();
+  }
+
+  /** P-028: arranca OpenCode si la sección está vacía y `autoLaunch` está activo. */
+  private autoLaunchIfIdle(): void {
+    if (this.pty.isRunning || !this.autoLaunchEnabled()) {
+      return;
+    }
+    this.trace("[view] auto-lanzando OpenCode");
+    this.pty.launch();
+  }
+
+  private autoLaunchEnabled(): boolean {
+    return vscode.workspace.getConfiguration("opencodeChat").get<boolean>("autoLaunch", true);
+  }
+
+  /**
+   * P-028: cuando el TUI termina, la sección vuelve a lanzarlo — es una terminal
+   * viva, no un lanzador. Solo se relanza si la sesión anterior llegó a producir
+   * salida: si el arranque falló, el error queda a la vista en vez de buclear.
+   */
+  private maybeRestart(): void {
+    if (this.disposed || this.pty.isRunning || this.restarting || !this.sawData) {
+      return;
+    }
+    if (!this.autoLaunchEnabled()) {
+      return;
+    }
+    this.sawData = false;
+    this.restarting = true;
+    this.trace("[view] sesión terminó ⇒ relanzando OpenCode");
+    setTimeout(() => {
+      this.restarting = false;
+      if (!this.disposed && !this.pty.isRunning) {
+        this.pty.launch();
+      }
+    }, 600);
   }
 
   /** §5.1: enfocar el TUI dentro de la sección. */
@@ -174,6 +246,18 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
 
   private syncState(): void {
     this.post({ type: "state", running: this.pty.isRunning });
+  }
+
+  /**
+   * P-029 — Envía la tipografía real de `terminal.integrated` al xterm del
+   * webview. Sin esto, la fuente NO es un color ⇒ VS Code no la expone por CSS y
+   * el cliente se quedaría con la tipografía del editor (banner con métricas
+   * distintas a las de la terminal auténtica).
+   */
+  private sendConfig(): void {
+    const style = readTerminalStyle();
+    this.post({ type: "config", style });
+    this.trace(`[view] estilo de terminal → webview: ${describeTerminalStyle(style)}`);
   }
 
   private buildHtml(webview: vscode.Webview): string {
@@ -196,24 +280,21 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   <title>OpenCode</title>
 </head>
 <body>
-  <!-- P-025: barra de estado con la fase real de la PTY + enlace a la pestaña
-       Salida (View → Output → "OpenCode Chat"), como en cualquier extensión. -->
-  <div id="status" class="status">
+  <!-- P-028: la sección ES la terminal. Sin botón, sin barra de estado visible.
+       Lo único que puede aparecer es el aviso de error (barra oculta por defecto). -->
+  <div id="status" class="status hidden">
     <span id="spinner" class="spinner hidden"></span>
-    <span id="status-text" class="status-text">Listo para lanzar.</span>
+    <span id="status-text" class="status-text"></span>
     <button id="output-btn" class="link-btn" title="Abrir View → Output → OpenCode Chat">salida</button>
   </div>
-  <div id="launch" class="launch">
-    <p>OpenCode no está en ejecución.</p>
-    <button id="launch-btn" class="vscode-button">Launch OpenCode Chat</button>
-  </div>
-  <div id="terminal" class="terminal hidden"></div>
+  <div id="terminal" class="terminal"></div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
   }
 
   dispose(): void {
+    this.disposed = true;
     for (const d of this.subs) {
       d.dispose();
     }

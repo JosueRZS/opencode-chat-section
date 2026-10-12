@@ -1,6 +1,12 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import { buildOpencodeCommand, envWithPath, resolveCwd, resolveShell } from "../utils/shell";
+import {
+  buildOpencodeCommand,
+  envWithPath,
+  opencodeTuiEnv,
+  resolveCwd,
+  resolveShell,
+} from "../utils/shell";
 import { STATUS_VIEW_ID } from "../utils/placement";
 import { stamp } from "../utils/log";
 import type { FileLog } from "../utils/filelog";
@@ -135,7 +141,7 @@ export class OpenCodePty implements vscode.Disposable {
 
     this.trace(
       "[launch]",
-      `shell=${shell.file} args=${JSON.stringify(shell.args)} cmd=${JSON.stringify(command)} cwd=${cwd ?? "(default)"} chain=${this.chainExit} conptyDll=${useConptyDll} timeout=${spawnTimeout}ms`,
+      `shell=${shell.file} args=${JSON.stringify(shell.args)} cmd=${JSON.stringify(command)} cwd=${cwd ?? "(default)"} chain=${this.chainExit} conptyDll=${useConptyDll} timeout=${spawnTimeout}ms tui=${JSON.stringify(opencodeTuiEnv())}`,
     );
     this.setStatus("starting", "arrancando el proceso PTY…");
 
@@ -144,7 +150,9 @@ export class OpenCodePty implements vscode.Disposable {
         file: shell.file,
         args: shell.args,
         cwd,
-        env: envWithPath(),
+        // `envWithPath()` da el PATH (P-001); `opencodeTuiEnv()` añade el override
+        // de la TUI solo para esta terminal (P-030).
+        env: { ...envWithPath(), ...opencodeTuiEnv() },
         cols: 80,
         rows: 24,
         useConpty: process.platform === "win32",
