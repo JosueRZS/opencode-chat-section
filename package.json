@@ -38,7 +38,7 @@
     "commands": [
       {
         "command": "opencodeChat.launch",
-        "title": "OpenCode: Launch OpenCode Chat",
+        "title": "OpenCode: Lanzar OpenCode Chat",
         "icon": "$(comment-discussion)"
       },
       {
@@ -60,6 +60,10 @@
       {
         "command": "opencodeChat.toggle",
         "title": "OpenCode: Toggle Chat + OpenCode"
+      },
+      {
+        "command": "opencodeChat.restorePosition",
+        "title": "OpenCode: Reestablecer posicion del chat"
       }
     ],
     "keybindings": [

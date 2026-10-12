@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { OpenCodePty } from "./terminal/OpenCodePty";
 import { TuiViewProvider } from "./views/TuiView";
 import { sendSelection } from "./commands/context";
-import { restoreTerminalView, ensureStatusViewInChat } from "./utils/placement";
+import { restoreTerminalView, ensureStatusViewInChat, restoreViewOrder } from "./utils/placement";
 import { FileLog } from "./utils/filelog";
 import { stamp } from "./utils/log";
 
@@ -72,6 +72,43 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     // Fase 4 (P-032): un solo atajo que muestra/oculta Chat y OpenCode a la vez.
     vscode.commands.registerCommand("opencodeChat.toggle", () => toggleChatAndOpenCode(view, output, fileLog)),
+    // P-034: devuelve la sección a su sitio si el usuario la arrastra a otro.
+    // Es la MISMA rutina que corre al activar: no hay un segundo camino que
+    // pueda divergir del comportamiento normal.
+    vscode.commands.registerCommand("opencodeChat.restorePosition", async () => {
+      fileLog.write("[cmd] opencodeChat.restorePosition ejecutado");
+
+      // Paso 1 — contenedor: la sección debe vivir en el de Chat.
+      const where = await ensureStatusViewInChat(output, context.globalState, fileLog);
+      if (where !== "ok") {
+        if (where === "chat-not-loaded") {
+          void vscode.window.showWarningMessage(
+            "OpenCode: Chat aún no ha cargado; inténtalo de nuevo en unos segundos.",
+          );
+        } else {
+          void vscode.window.showErrorMessage(
+            'OpenCode: no se pudo mover la sección. Revisa View → Output → "OpenCode Chat".',
+          );
+        }
+        return;
+      }
+
+      // Paso 2 — orden: esto es lo que P-034 no hacía. `vscode.moveViews` es
+      // no-op si la vista ya está en el contenedor, así que una sección
+      // arrastrada por encima de Chat seguía arriba mientras el aviso afirmaba
+      // lo contrario. Aquí se reescribe `state.order` de verdad.
+      const order = await restoreViewOrder(fileLog);
+      if (order === "no-focus") {
+        void vscode.window.showErrorMessage(
+          'OpenCode: la sección está en el contenedor pero no se pudo reordenar. Revisa View → Output → "OpenCode Chat".',
+        );
+        return;
+      }
+
+      // Presente, no pasado: si ya estaba debajo no se ve ningún cambio, y este
+      // aviso es lo único que confirma que los dos mandatos corrieron.
+      void vscode.window.showInformationMessage("OpenCode: la sección está debajo de Chat.");
+    }),
   );
 
   // --- Ciclo de vida (§7.3) — la señal es `onExit` de la PTY ---

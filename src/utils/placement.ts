@@ -29,6 +29,15 @@ export const CHAT_CONTAINER_ID = "workbench.panel.chat";
 const STATUS_PLACED_FLAG = "opencodeChat.statusViewPlacedInChat";
 
 /**
+ * Resultado de la restauración, para que el comando pueda informar en la
+ * superficie y no solo en el canal de Salida.
+ *  - `ok`: la vista está (o acaba de volver) en su contenedor.
+ *  - `chat-not-loaded`: Chat aún no registró su contenedor, no se puede mover.
+ *  - `error`: `vscode.moveViews` falló.
+ */
+export type PlaceResult = "ok" | "chat-not-loaded" | "error";
+
+/**
  * Mueve la sección OpenCode al contenedor de Chat — **se reafirma en CADA activación**.
  *
  * Por qué en caliente (P-019): el punto de extensión `views` se procesa ANTES de que
@@ -44,12 +53,16 @@ const STATUS_PLACED_FLAG = "opencodeChat.statusViewPlacedInChat";
  *  - si está en otro sitio, la mueve al final ⇒ **queda debajo de Chat** (patrón
  *    Docker/Explorer: secciones apiladas con sash), y `cleanUpGeneratedViewContainer`
  *    **borra el contenedor-servicio huérfano** automáticamente.
+ *
+ * Es la misma rutina que invoca `opencodeChat.restorePosition`: moverla a mano es
+ * indistinguible de reafirmarla al arrancar, así que no hay dos caminos que
+ * puedan divergir.
  */
 export async function ensureStatusViewInChat(
   output: vscode.OutputChannel,
   state: vscode.Memento,
   fileLog?: FileLog,
-): Promise<void> {
+): Promise<PlaceResult> {
   const wasPlaced = state.get<boolean>(STATUS_PLACED_FLAG) === true;
 
   // Guardia: moveViews no lanza si el contenedor no existe. Si Chat aún no ha
@@ -60,7 +73,7 @@ export async function ensureStatusViewInChat(
       `${stamp()} [place] Chat aún no cargado → movimiento de la vista aplazado al próximo arranque`,
     );
     fileLog?.write("[place] Chat AÚN NO CARGADO → movimiento aplazado (workbench.action.chat.open ausente)");
-    return;
+    return "chat-not-loaded";
   }
 
   const before = vscode.window.activeTextEditor;
@@ -80,7 +93,7 @@ export async function ensureStatusViewInChat(
     const msg = e instanceof Error ? e.message : String(e);
     output.appendLine(`${stamp()} [place] no se pudo mover la vista: ${msg}`);
     fileLog?.write(`[place] moveViews FALLÓ: ${msg}`);
-    return;
+    return "error";
   }
 
   // moveViews enfoca el contenedor de Chat → devolver el foco al editor previo.
@@ -91,6 +104,98 @@ export async function ensureStatusViewInChat(
       /* el editor puede haberse cerrado */
     }
   }
+  return "ok";
+}
+
+/**
+ * Resultado de la restauración de ORDEN (distinto de la de contenedor).
+ *  - `ok`: `views.moveViewDown` aceptó la llamada, con lo que `focusedView`
+ *    apuntaba a nuestra vista y se reescribió `state.order`.
+ *  - `no-focus`: el mandato fue rechazado dos veces seguidas — `focusedView`
+ *    no era nuestra vista y no lo conseguimos fijar. No se movió nada.
+ */
+export type OrderResult = "ok" | "no-focus";
+
+/**
+ * P-035 — Empuja la sección al FINAL del contenedor: debajo de Chat.
+ *
+ * Por qué hace falta (extraído del workbench de VS Code 1.141, no supuesto):
+ *
+ * `ViewDescriptorService.moveViewsToContainer(e,t,i,n)` empieza con la guarda
+ * `r&&a&&r!==a&&(...)`, donde `r` es el contenedor ACTUAL de la vista y `a` el
+ * destino. Si ya está en destino, **no hace absolutamente nada** — por eso el
+ * P-034 devolvía `ok` sin mover la vista cuando el usuario la había arrastrado
+ * por encima de Chat dentro del mismo contenedor.
+ *
+ * El orden lo fija `ViewContainerModel.compareViewDescriptors` → `getViewOrder`:
+ *
+ *     let t = typeof e.state.order == "number" ? e.state.order : e.viewDescriptor.order;
+ *     return typeof t == "number" ? t : Number.MAX_VALUE;
+ *
+ *  - Vista que nadie ha arrastrado: sin `state.order` ⇒ `MAX_VALUE` ⇒ ordena la
+ *    última ⇒ **debajo de Chat**. Así funcionaba el diseño original.
+ *  - Tras un arrastre, `ViewContainerModel.move` escribe `state.order = 0..n-1`
+ *    sobre el estado que `viewDescriptorsState` guarda **en storage**
+ *    (`createInstance(oxt, storageId)`) ⇒ la vista queda arriba para siempre, y
+ *    ni un nuevo arranque lo arregla.
+ *
+ * El único punto que reescribe `state.order` es `ViewContainerModel.move`, y lo
+ * alcanza un único mandato registrado: `views.moveViewDown` (clase con
+ * `offset = 1`). Por eso se usa ese y no `vscode.moveViews`.
+ *
+ * Lo que hace falta para que actúe, todo verificado en el fuente:
+ *  - `XKe.run` lee `focusedView`; si es distinto de la nuestra, movería la vista
+ *    de OTRO — el fallo grave. Por eso **primero se vacía** enfocando el editor
+ *    (`onDidBlurView` → `focusedViewContextKey.reset()`); así, si después no
+ *    llegamos a enfocar la nuestra, el mandato se rechaza en vez de actuar mal.
+ *  - `_tryExecuteCommand` **no** comprueba la precondition, de modo que
+ *    `focusedView != ""` no es un obstáculo desde la extensión; el cerrojo es
+ *    solo el `if(n===void 0) return` y el `getViewContainerByViewId`.
+ *  - Con `l+offset >= length` devuelve **sin error** al estar en el borde, así
+ *    que repetir hasta `MAX_ORDER_STEPS` es idempotente y no puede pasarse.
+ */
+export async function restoreViewOrder(fileLog?: FileLog): Promise<OrderResult> {
+  const MOVE_DOWN = "views.moveViewDown";
+  const MAX_STEPS = 12;
+  const SETTLE = 80;
+
+  const settle = () => new Promise<void>(r => setTimeout(r, SETTLE));
+
+  // 1. Vaciar `focusedView`. Es lo que convierte un fallo de foco en un
+  //    rechazo detectable en vez de en un mandato que reordena a otro.
+  try {
+    await vscode.commands.executeCommand("workbench.action.focusActiveEditorGroup");
+    await settle();
+  } catch {
+    /* sin editor abierto: se sigue adelante, el paso 2 fija el foco igualmente */
+  }
+
+  // 2. Subir nuestro foco y bajar la vista. Se re-enfoca en CADA vuelta: si un
+  //    reordenado dispara `onDidBlurView` y vacía la clave, el siguiente intento
+  //    vuelve a fijarla.
+  let rejects = 0;
+  for (let step = 0; step < MAX_STEPS; step++) {
+    if (rejects >= 2) {
+      break;
+    }
+    try {
+      await vscode.commands.executeCommand(`${STATUS_VIEW_ID}.focus`);
+      await settle();
+      await vscode.commands.executeCommand(MOVE_DOWN);
+      rejects = 0;
+    } catch (e) {
+      rejects++;
+      const msg = e instanceof Error ? e.message : String(e);
+      fileLog?.write(`[place] ${MOVE_DOWN} rechazado (intento ${rejects}): ${msg}`);
+    }
+  }
+
+  if (rejects >= 2) {
+    fileLog?.write("[place] ORDEN NO RESTAURADO: focusedView nunca fue nuestra vista");
+    return "no-focus";
+  }
+  fileLog?.write("[place] orden restaurado: vista empujada al final del contenedor");
+  return "ok";
 }
 
 /**
