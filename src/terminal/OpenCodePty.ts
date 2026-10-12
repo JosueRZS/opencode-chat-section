@@ -1,65 +1,98 @@
 import * as vscode from "vscode";
-import type { IPty } from "node-pty";
+import * as path from "path";
 import { buildOpencodeCommand, envWithPath, resolveCwd, resolveShell } from "../utils/shell";
 import { STATUS_VIEW_ID } from "../utils/placement";
 import { stamp } from "../utils/log";
 import type { FileLog } from "../utils/filelog";
+import { PtyHostClient } from "./PtyHostClient";
 
 /**
- * La instancia efímera de OpenCode (D1) sobre una **PTY real** (`node-pty`).
+ * La instancia efímera de OpenCode (D1) sobre una **PTY real**.
  *
  * Por qué PTY y no `vscode.window.createTerminal` (P-022): un terminal de VS Code
  * solo puede vivir en el Panel o en un Editor (P-017) — **nunca dentro de una vista**.
  * Para que el TUI se renderice DENTRO de la sección OpenCode (debajo de Chat) hay que
  * alojarlo en un WebviewView con xterm.js, y eso exige una PTY propia.
  *
- * `node-pty@1.1.0` usa **N-API** (`napi_register_module_v1`) → ABI estable, carga en el
- * extension host de Electron sin recompilar contra cada versión de VS Code.
+ * **P-027 — la PTY NO corre aquí, sino en un proceso hijo** (`dist/pty-host.cjs`):
+ * dentro del extension host, `node-pty.spawn()` se bloqueaba para siempre (hereda
+ * el `execArgv` de Electron en el worker de ConPTY) y congelaba la ventana entera.
+ * El cliente (`PtyHostClient`) además pone plazo a cada paso ⇒ un cuelgue se
+ * convierte en un mensaje de error recuperable, nunca en una congelación.
  *
  * El shell se arranca igual que antes (P-001): nunca `spawn('opencode')` a pelo, porque el
  * PATH del extension host no es el del usuario; se teclea el comando dentro del shell, que
  * sí resuelve `opencode` igual que en una terminal normal.
- *
- * P-025: cada fase va con traza a OutputChannel **y** a fichero síncrono, para poder
- * localizar el punto exacto de fallo aunque el extension host se cuelgue.
  */
 export class OpenCodePty implements vscode.Disposable {
-  private proc: IPty | undefined;
+  private running = false;
+  private pid: number | undefined;
+
   private readonly stateEmitter = new vscode.EventEmitter<void>();
   private readonly dataEmitter = new vscode.EventEmitter<string>();
+  private readonly statusEmitter = new vscode.EventEmitter<{ phase: string; detail: string }>();
 
   /** Se dispara al crear/matar la PTY (para la vista). */
   readonly onDidChangeState = this.stateEmitter.event;
   /** Salida cruda de la PTY, para reenviarla a xterm.js. */
   readonly onDidReceiveData = this.dataEmitter.event;
-
-  /**
-   * P-025: cambio de fase para el panel de diagnóstico del webview
-   * (`idle` | `starting` | `running` | `exited` | `error`).
-   */
-  private readonly statusEmitter = new vscode.EventEmitter<{ phase: string; detail: string }>();
+  /** P-025: cambio de fase (`idle` | `starting` | `running` | `exited` | `error`). */
   readonly onDidChangeStatus = this.statusEmitter.event;
 
   /**
    * Reemplazo del stdout perdido: con `retainContextWhenHidden` el webview persiste,
    * pero al ABRIR la vista por primera vez con la TUI ya corriendo hay que repintar.
-   * Guardamos un tope para no crecer sin límite.
    */
   private replay = "";
   private static readonly MAX_REPLAY = 512 * 1024;
-  /** Bytes recibidos en total (diagnóstico P-025). */
   private totalBytes = 0;
 
   /** P-024: si el TUI muere, la PTY debe morir con él (§7.3 `chainExit`). */
   private chainExit = true;
+  /** Escucha de datos usada por `watchPrompt` (se descarta en cada relanzamiento). */
+  private promptListener: vscode.Disposable | undefined;
+  /** P-027: si tras el spawn no llega ni un byte, decirlo (nunca un "cargando" mudo). */
+  private firstDataTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Comando a tecleear en el shell en cuanto la PTY confirme el arranque. */
+  private pendingCommand = "";
+
+  private readonly subs: vscode.Disposable[] = [];
+  private readonly client: PtyHostClient;
 
   constructor(
     private readonly output: vscode.OutputChannel,
     private readonly fileLog?: FileLog,
-  ) {}
+  ) {
+    // `__dirname` = <ext>/dist ⇒ el host del hijo vive al lado del bundle.
+    this.client = new PtyHostClient(
+      path.join(__dirname, "pty-host.cjs"),
+      path.dirname(__dirname),
+    );
+
+    this.subs.push(
+      this.client.onDidBoot(b =>
+        this.trace(
+          "[pty-host]",
+          `proceso hijo listo: pid=${b.pid} execArgv=${JSON.stringify(b.execArgv)}`,
+        ),
+      ),
+      this.client.onDidSpawn(e => this.onPtySpawned(e.pid)),
+      this.client.onDidReceiveData(d => this.onPtyData(d)),
+      this.client.onDidExit(e => this.onPtyExit(e.exitCode, e.signal)),
+      this.client.onError(m => {
+        this.trace("[pty-host]", m);
+        this.setStatus("error", m);
+      }),
+    );
+  }
+
+  /** PID del shell alojado en el hijo (útil en el diagnóstico). */
+  get ptyPid(): number | undefined {
+    return this.pid;
+  }
 
   get isRunning(): boolean {
-    return this.proc !== undefined;
+    return this.running;
   }
 
   /** Salida acumulada desde el arranque (para repintar el webview al abrirlo). */
@@ -83,106 +116,94 @@ export class OpenCodePty implements vscode.Disposable {
    * (una sola instancia, §7.4) — el foco lo resuelve `focus()`.
    */
   launch(): void {
-    if (this.proc) {
+    if (this.running) {
       this.setStatus("running", "ya hay una instancia en marcha");
       return;
     }
 
-    this.setStatus("starting", "resolviendo shell y comando…");
-    this.trace("[launch]", "entrando en launch()");
-
     const cfg = vscode.workspace.getConfiguration("opencodeChat");
-    const chainExit = cfg.get<boolean>("chainExit", true);
+    this.chainExit = cfg.get<boolean>("chainExit", true);
+    const useConptyDll = cfg.get<boolean>("useConptyDll", true);
+    const spawnTimeout = cfg.get<number>("ptySpawnTimeout", 10000);
     const shell = resolveShell();
     const cwd = resolveCwd(cfg.get<string>("terminalCwd"));
-    const command = buildOpencodeCommand(chainExit);
+    const command = buildOpencodeCommand(this.chainExit);
 
-    this.trace(
-      "[launch]",
-      `shell=${shell.file} args=${JSON.stringify(shell.args)} cmd=${JSON.stringify(command)} cwd=${cwd ?? "(default)"} chain=${chainExit}`,
-    );
-
-    this.trace("[launch]", "require('node-pty')…");
-    let proc: IPty;
-    try {
-      const pty = require("node-pty") as typeof import("node-pty");
-      this.trace("[launch]", "node-pty cargado; llamando a spawn()…");
-      proc = pty.spawn(shell.file, shell.args, {
-        name: "xterm-256color",
-        cols: 80,
-        rows: 24,
-        cwd,
-        env: envWithPath(),
-        // ConPTY (Win10 1809+): es lo que VS Code usa por defecto y lo que el TUI necesita.
-        useConpty: process.platform === "win32",
-      });
-      this.trace("[launch]", `spawn() RETORNÓ pid=${proc.pid}`);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      this.trace("[pty]", `no se pudo crear la PTY: ${msg}`);
-      this.setStatus("error", `spawn falló: ${msg}`);
-      void vscode.window.showErrorMessage(
-        `OpenCode Chat: no se pudo crear la terminal (${msg}). ¿Se instaló node-pty para tu plataforma?`,
-      );
-      return;
-    }
-
-    this.proc = proc;
+    this.pendingCommand = command;
     this.replay = "";
-    this.chainExit = chainExit;
     this.totalBytes = 0;
 
-    // P-025: si tras 2 s la PTY no manda NADA, decirlo en la barra de estado.
-    // Un "arrancando" eterno no distingue entre «spawn ok y esperando» y
-    // «spawn muerto», que es exactamente lo que necesitamos saber.
-    const spawnedPid = proc.pid;
-    setTimeout(() => {
-      if (this.proc === proc && this.totalBytes === 0) {
-        this.trace(
-          "[pty]",
-          `spawn OK (pid ${spawnedPid}) pero sin salida tras 2 s`,
-        );
-        this.setStatus(
-          "starting",
-          `spawn correcto (pid ${spawnedPid}) pero la PTY aún no manda salida…`,
-        );
-      }
-    }, 2000);
-
-    proc.onData(d => {
-      const first = this.totalBytes === 0;
-      this.totalBytes += d.length;
-      this.replay += d;
-      if (this.replay.length > OpenCodePty.MAX_REPLAY) {
-        this.replay = this.replay.slice(-OpenCodePty.MAX_REPLAY);
-      }
-      if (first) {
-        // El shell arrancó de verdad: ya no estamos bloqueados en el spawn.
-        this.trace("[pty]", `primer bloque de salida: ${d.length} B`);
-        this.setStatus("running", `shell activo, ${d.length} B recibidos`);
-      }
-      this.dataEmitter.fire(d);
-    });
-
-    proc.onExit(e => {
-      this.trace(
-        "[pty]",
-        `exit code=${e.exitCode}${e.signal ? ` signal=${e.signal}` : ""} (${this.totalBytes} B recibidos)`,
-      );
-      this.proc = undefined;
-      this.setStatus("exited", `el proceso terminó con código ${e.exitCode}`);
-      this.stateEmitter.fire();
-    });
-
-    this.watchPrompt();
-
     this.trace(
       "[launch]",
-      `listo: shell=${shell.file} chain=${chainExit} cwd=${cwd ?? "(default)"} pid=${proc.pid}`,
+      `shell=${shell.file} args=${JSON.stringify(shell.args)} cmd=${JSON.stringify(command)} cwd=${cwd ?? "(default)"} chain=${this.chainExit} conptyDll=${useConptyDll} timeout=${spawnTimeout}ms`,
+    );
+    this.setStatus("starting", "arrancando el proceso PTY…");
+
+    this.client.launch(
+      {
+        file: shell.file,
+        args: shell.args,
+        cwd,
+        env: envWithPath(),
+        cols: 80,
+        rows: 24,
+        useConpty: process.platform === "win32",
+        useConptyDll,
+      },
+      spawnTimeout,
     );
 
-    // P-024: el comando va en su PROPIA línea; `chainExit` lo cumple `watchPrompt`.
-    this.writeCommand(command);
+    this.watchPrompt();
+    this.stateEmitter.fire();
+  }
+
+  /** La PTY existe de verdad: ahora sí se teclea el comando (P-001/P-024). */
+  private onPtySpawned(pid: number): void {
+    this.running = true;
+    this.pid = pid;
+    this.trace("[pty]", `PTY creada (pid ${pid}); tecleando comando…`);
+    this.setStatus("starting", `PTY creada (pid ${pid}), esperando la salida del shell…`);
+
+    // P-027: si en3 s no llega ni un byte, decirlo en la barra de estado.
+    this.firstDataTimer = setTimeout(() => {
+      if (this.running && this.totalBytes === 0) {
+        this.trace("[pty]", `spawn OK (pid ${pid}) pero sin salida tras 3 s`);
+        this.setStatus("starting", `spawn correcto (pid ${pid}) pero la PTY aún no manda salida…`);
+      }
+    }, 3000);
+
+    this.writeCommand(this.pendingCommand);
+    this.stateEmitter.fire();
+  }
+
+  private onPtyData(d: string): void {
+    const first = this.totalBytes === 0;
+    this.totalBytes += d.length;
+    this.replay += d;
+    if (this.replay.length > OpenCodePty.MAX_REPLAY) {
+      this.replay = this.replay.slice(-OpenCodePty.MAX_REPLAY);
+    }
+    if (first) {
+      if (this.firstDataTimer) {
+        clearTimeout(this.firstDataTimer);
+        this.firstDataTimer = undefined;
+      }
+      this.trace("[pty]", `primer bloque de salida: ${d.length} B`);
+      this.setStatus("running", `shell activo, ${d.length} B recibidos`);
+    }
+    this.dataEmitter.fire(d);
+  }
+
+  private onPtyExit(exitCode: number, signal: number | null): void {
+    this.trace(
+      "[pty]",
+      `exit code=${exitCode}${signal !== null ? ` signal=${signal}` : ""} (${this.totalBytes} B recibidos)`,
+    );
+    this.running = false;
+    this.pid = undefined;
+    this.promptListener?.dispose();
+    this.promptListener = undefined;
+    this.setStatus("exited", `el proceso terminó con código ${exitCode}`);
     this.stateEmitter.fire();
   }
 
@@ -198,7 +219,7 @@ export class OpenCodePty implements vscode.Disposable {
    */
   private writeCommand(command: string): void {
     this.trace("[launch]", `escribiendo comando: ${JSON.stringify(command)}`);
-    void this.proc?.write(`${command}\r`);
+    this.client.write(`${command}\r`);
   }
 
   /**
@@ -210,23 +231,19 @@ export class OpenCodePty implements vscode.Disposable {
     if (!this.chainExit) {
       return;
     }
-    const p = this.proc;
-    if (!p) {
-      return;
-    }
     let armado = false;
     const timer = setInterval(() => {
-      if (this.proc !== p) {
+      if (!this.running || armado) {
         clearInterval(timer);
         return;
       }
-      if (!armado && /[>]\s*$/.test(this.replay)) {
+      if (/[>]\s*$/.test(this.replay)) {
         armado = true;
         clearInterval(timer);
         this.trace("[pty]", "vuelve el prompt del shell ⇒ enviando exit");
         setTimeout(() => {
-          if (this.proc === p) {
-            void p.write("exit\r");
+          if (this.running) {
+            this.client.write("exit\r");
           }
         }, 400);
       }
@@ -235,22 +252,14 @@ export class OpenCodePty implements vscode.Disposable {
 
   /** §5.1: el foco lo maneja la vista (el webview recibe el teclado). */
   focus(): void {
-    // Sin-op intencional: `TuiViewProvider` enfoca el terminal al volverse visible.
-    // Aquí solo garantizamos que la vista exista.
     void vscode.commands.executeCommand(`${STATUS_VIEW_ID}.focus`);
   }
 
   /** §7.4: instancia efímera → matar la PTY y crear una nueva. */
   newSession(): void {
-    const old = this.proc;
-    this.proc = undefined;
-    if (old) {
-      try {
-        old.kill();
-      } catch {
-        /* la PTY ya podía haber muerto */
-      }
-    }
+    this.client.kill();
+    this.running = false;
+    this.pid = undefined;
     this.replay = "";
     this.totalBytes = 0;
     this.stateEmitter.fire();
@@ -262,40 +271,39 @@ export class OpenCodePty implements vscode.Disposable {
    * (addNewLine = false) para que el usuario revise y pulse Enter.
    */
   sendToComposer(text: string): boolean {
-    if (!this.proc) {
+    if (!this.running) {
       return false;
     }
-    this.proc.write(text);
+    this.client.write(text);
     return true;
   }
 
   /** Datos escritos por el usuario desde xterm.js. */
   write(data: string): void {
-    this.proc?.write(data);
+    this.client.write(data);
   }
 
   /** El webview informa de su tamaño real → redimensionar la PTY. */
   resize(cols: number, rows: number): void {
-    if (!this.proc || cols <= 0 || rows <= 0) {
+    if (!this.running || cols <= 0 || rows <= 0) {
       return;
     }
-    try {
-      this.proc.resize(cols, rows);
-    } catch {
-      /* ConPTY puede rechazar un resize transitorio */
-    }
+    this.client.resize(cols, rows);
   }
 
   dispose(): void {
-    const old = this.proc;
-    this.proc = undefined;
-    if (old) {
-      try {
-        old.kill();
-      } catch {
-        /* ya muerta */
-      }
+    if (this.firstDataTimer) {
+      clearTimeout(this.firstDataTimer);
+      this.firstDataTimer = undefined;
     }
+    this.promptListener?.dispose();
+    this.promptListener = undefined;
+    this.running = false;
+    this.pid = undefined;
+    for (const d of this.subs) {
+      d.dispose();
+    }
+    this.client.dispose();
     // El emitter NO se dispone aquí: dispose() puede llamarlo la red de seguridad
     // y poder relanzar después (el provider de la vista sigue escuchando).
     this.stateEmitter.fire();

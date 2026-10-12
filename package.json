@@ -107,6 +107,16 @@
           "default": true,
           "description": "Encadenar `exit` al lanzar, para que la pestaña se cierre al salir de OpenCode (§7.3)."
         },
+        "opencodeChat.useConptyDll": {
+          "type": "boolean",
+          "default": true,
+          "description": "Usar el conpty.dll que trae node-pty en vez del del sistema. Es el camino que usa la propia terminal de VS Code en Windows, y evita los cuelgues de ConPTY del sistema (P-027)."
+        },
+        "opencodeChat.ptySpawnTimeout": {
+          "type": "number",
+          "default": 10000,
+          "description": "Milisegundos que la extensión espera a que node-pty confirme el arranque antes de dar por bloqueado el proceso PTY (P-027)."
+        },
         "opencodeChat.autoPromptInstall": {
           "type": "boolean",
           "default": true,
@@ -140,8 +150,9 @@
     }
   },
   "scripts": {
-    "build": "npm run check-types && npm run build:ext && npm run build:web",
+    "build": "npm run check-types && npm run build:ext && npm run build:ptyhost && npm run build:web",
     "build:ext": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:node-pty --format=cjs --platform=node --sourcemap",
+    "build:ptyhost": "esbuild src/terminal/ptyHost.ts --bundle --outfile=dist/pty-host.cjs --external:vscode --external:node-pty --format=cjs --platform=node",
     "build:web": "esbuild src/webview/client.ts --bundle --outfile=dist/webview.js --format=iife --platform=browser --minify --sourcemap",
     "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:node-pty --format=cjs --platform=node --sourcemap --watch",
     "check-types": "tsc --noEmit && tsc -p tsconfig.webview.json",
