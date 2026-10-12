@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import type { FileLog } from "./filelog";
 import { stamp } from "./log";
 
 /**
@@ -47,6 +48,7 @@ const STATUS_PLACED_FLAG = "opencodeChat.statusViewPlacedInChat";
 export async function ensureStatusViewInChat(
   output: vscode.OutputChannel,
   state: vscode.Memento,
+  fileLog?: FileLog,
 ): Promise<void> {
   const wasPlaced = state.get<boolean>(STATUS_PLACED_FLAG) === true;
 
@@ -57,6 +59,7 @@ export async function ensureStatusViewInChat(
     output.appendLine(
       `${stamp()} [place] Chat aún no cargado → movimiento de la vista aplazado al próximo arranque`,
     );
+    fileLog?.write("[place] Chat AÚN NO CARGADO → movimiento aplazado (workbench.action.chat.open ausente)");
     return;
   }
 
@@ -70,9 +73,13 @@ export async function ensureStatusViewInChat(
     output.appendLine(
       `${stamp()} [place] vista OpenCode → contenedor de Chat (${wasPlaced ? "reafirmada/reparada" : "movida"}; si hubo movimiento, al final = debajo de Chat)`,
     );
+    fileLog?.write(
+      `[place] moveViews OK (${wasPlaced ? "reafirmada/reparada" : "movida"}) → ${CHAT_CONTAINER_ID}`,
+    );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     output.appendLine(`${stamp()} [place] no se pudo mover la vista: ${msg}`);
+    fileLog?.write(`[place] moveViews FALLÓ: ${msg}`);
     return;
   }
 
@@ -110,6 +117,7 @@ const RESTORED_FLAG = "opencodeChat.terminalViewRestored";
 export async function restoreTerminalView(
   output: vscode.OutputChannel,
   state: vscode.Memento,
+  fileLog?: FileLog,
 ): Promise<void> {
   if (state.get<boolean>(RESTORED_FLAG)) {
     return;

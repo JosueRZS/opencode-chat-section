@@ -21,7 +21,12 @@ const vscode = acquireVsCodeApi();
 
 const launchEl = document.getElementById("launch") as HTMLDivElement;
 const launchBtn = document.getElementById("launch-btn") as HTMLButtonElement;
+const outputBtn = document.getElementById("output-btn") as HTMLButtonElement;
 const termEl = document.getElementById("terminal") as HTMLDivElement;
+// P-025: panel de estado + loader. Sin esto, un fallo de spawn es invisible.
+const statusEl = document.getElementById("status") as HTMLDivElement;
+const statusText = document.getElementById("status-text") as HTMLSpanElement;
+const spinner = document.getElementById("spinner") as HTMLSpanElement;
 
 // --- Colores del tema de VS Code (xterm no los hereda solo) ---
 function cssVar(name: string, fallback: string): string {
@@ -48,7 +53,13 @@ const term = new Terminal({
 
 const fit = new FitAddon();
 term.loadAddon(fit);
-term.open(termEl);
+// `term.open()` sobre un contenedor aún oculto puede fallar. Si lo hace, el panel
+// de estado lo dirá en rojo: preferimos un error legible a una sección muda.
+try {
+  term.open(termEl);
+} catch (e) {
+  setStatus("error", `xterm.js no pudo iniciarse: ${e instanceof Error ? e.message : String(e)}`);
+}
 
 // Teclado del usuario → PTY.
 term.onData(data => {
@@ -85,12 +96,66 @@ function setState(running: boolean): void {
   }
 }
 
+/**
+ * P-025 — Panel de diagnóstico: refleja la fase REAL de la PTY.
+ * `starting` muestra el loader; `error` lo pinta en color de error.
+ */
+const PHASE_LABEL: Record<string, string> = {
+  idle: "Listo para lanzar.",
+  starting: "Arrancando OpenCode…",
+  running: "OpenCode en ejecución.",
+  exited: "OpenCode terminó. Vuelve a lanzar cuando quieras.",
+  error: "Error:",
+};
+
+function setStatus(phase: string, detail: string): void {
+  const label = PHASE_LABEL[phase] ?? phase;
+  statusText.textContent = detail ? `${label} ${detail}` : label;
+  statusEl.dataset.phase = phase;
+  spinner.classList.toggle("hidden", phase !== "starting");
+  launchBtn.disabled = phase === "starting";
+  launchBtn.textContent = phase === "starting" ? "Arrancando…" : "Launch OpenCode Chat";
+  // El TUI solo ocupa la sección cuando hay algo real en marcha.
+  if (phase !== "running") {
+    setState(false);
+  }
+}
+
+/**
+ * P-025 — Watchdog de respuesta: si tras pulsar Launch la extensión no manda
+ * ninguna fase en 2 s, el panel lo dice en rojo. Así "arrancando…" nunca se
+ * queda girando sin explicación (era justo el síntoma que ocultaba el fallo).
+ */
+let replyTimer: ReturnType<typeof setTimeout> | undefined;
+function expectReply(): void {
+  clearTimeout(replyTimer);
+  replyTimer = setTimeout(() => {
+    setStatus(
+      "error",
+      "la extensión no contestó en 2 s. Pulsa «salida» para ver el motivo.",
+    );
+  }, 2000);
+}
+function gotReply(): void {
+  clearTimeout(replyTimer);
+}
+
 launchBtn.addEventListener("click", () => {
+  // Feedback inmediato: el usuario ve que el clic sí se registró.
+  setStatus("starting", "enviando petición de launch…");
+  expectReply();
   vscode.postMessage({ type: "launch" });
 });
 
+// P-025: la pestaña Salida estándar de VS Code (View → Output → "OpenCode Chat").
+outputBtn.addEventListener("click", () => {
+  vscode.postMessage({ type: "showOutput" });
+});
+
 window.addEventListener("message", (e: MessageEvent) => {
-  const msg = e.data as { type: string; data?: string; running?: boolean };
+  const msg = e.data as { type: string; data?: string; running?: boolean; phase?: string; detail?: string };
+  // Cualquier respuesta de la extensión cancela el watchdog.
+  gotReply();
   switch (msg?.type) {
     case "data":
       if (typeof msg.data === "string") {
@@ -99,6 +164,9 @@ window.addEventListener("message", (e: MessageEvent) => {
       break;
     case "state":
       setState(msg.running === true);
+      break;
+    case "status":
+      setStatus(msg.phase ?? "idle", msg.detail ?? "");
       break;
   }
 });

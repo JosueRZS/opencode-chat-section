@@ -52,6 +52,10 @@
       {
         "command": "opencodeChat.sendSelection",
         "title": "OpenCode: Send Selection to Agent"
+      },
+      {
+        "command": "opencodeChat.showOutput",
+        "title": "OpenCode: Show Output"
       }
     ],
     "keybindings": [

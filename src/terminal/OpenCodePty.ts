@@ -3,6 +3,7 @@ import type { IPty } from "node-pty";
 import { buildOpencodeCommand, envWithPath, resolveCwd, resolveShell } from "../utils/shell";
 import { STATUS_VIEW_ID } from "../utils/placement";
 import { stamp } from "../utils/log";
+import type { FileLog } from "../utils/filelog";
 
 /**
  * La instancia efímera de OpenCode (D1) sobre una **PTY real** (`node-pty`).
@@ -18,6 +19,9 @@ import { stamp } from "../utils/log";
  * El shell se arranca igual que antes (P-001): nunca `spawn('opencode')` a pelo, porque el
  * PATH del extension host no es el del usuario; se teclea el comando dentro del shell, que
  * sí resuelve `opencode` igual que en una terminal normal.
+ *
+ * P-025: cada fase va con traza a OutputChannel **y** a fichero síncrono, para poder
+ * localizar el punto exacto de fallo aunque el extension host se cuelgue.
  */
 export class OpenCodePty implements vscode.Disposable {
   private proc: IPty | undefined;
@@ -30,19 +34,29 @@ export class OpenCodePty implements vscode.Disposable {
   readonly onDidReceiveData = this.dataEmitter.event;
 
   /**
+   * P-025: cambio de fase para el panel de diagnóstico del webview
+   * (`idle` | `starting` | `running` | `exited` | `error`).
+   */
+  private readonly statusEmitter = new vscode.EventEmitter<{ phase: string; detail: string }>();
+  readonly onDidChangeStatus = this.statusEmitter.event;
+
+  /**
    * Reemplazo del stdout perdido: con `retainContextWhenHidden` el webview persiste,
    * pero al ABRIR la vista por primera vez con la TUI ya corriendo hay que repintar.
    * Guardamos un tope para no crecer sin límite.
    */
   private replay = "";
   private static readonly MAX_REPLAY = 512 * 1024;
+  /** Bytes recibidos en total (diagnóstico P-025). */
+  private totalBytes = 0;
 
   /** P-024: si el TUI muere, la PTY debe morir con él (§7.3 `chainExit`). */
   private chainExit = true;
-  /** Escucha de datos usada por `watchPrompt` (se descarta en cada relanzamiento). */
-  private promptListener: vscode.Disposable | undefined;
 
-  constructor(private readonly output: vscode.OutputChannel) {}
+  constructor(
+    private readonly output: vscode.OutputChannel,
+    private readonly fileLog?: FileLog,
+  ) {}
 
   get isRunning(): boolean {
     return this.proc !== undefined;
@@ -53,14 +67,29 @@ export class OpenCodePty implements vscode.Disposable {
     return this.replay;
   }
 
+  /** P-025: traza a AMBOS destinos (OutputChannel + fichero síncrono). */
+  private trace(tag: string, msg: string): void {
+    this.output.appendLine(`${stamp()} ${tag} ${msg}`);
+    this.fileLog?.write(`${tag} ${msg}`);
+  }
+
+  private setStatus(phase: string, detail: string): void {
+    this.fileLog?.write(`STATUS ${phase} :: ${detail}`);
+    this.statusEmitter.fire({ phase, detail });
+  }
+
   /**
    * §1.1 + §4: lanza OpenCode dentro de una PTY. Si ya corre, no hace nada
    * (una sola instancia, §7.4) — el foco lo resuelve `focus()`.
    */
   launch(): void {
     if (this.proc) {
+      this.setStatus("running", "ya hay una instancia en marcha");
       return;
     }
+
+    this.setStatus("starting", "resolviendo shell y comando…");
+    this.trace("[launch]", "entrando en launch()");
 
     const cfg = vscode.workspace.getConfiguration("opencodeChat");
     const chainExit = cfg.get<boolean>("chainExit", true);
@@ -68,9 +97,16 @@ export class OpenCodePty implements vscode.Disposable {
     const cwd = resolveCwd(cfg.get<string>("terminalCwd"));
     const command = buildOpencodeCommand(chainExit);
 
+    this.trace(
+      "[launch]",
+      `shell=${shell.file} args=${JSON.stringify(shell.args)} cmd=${JSON.stringify(command)} cwd=${cwd ?? "(default)"} chain=${chainExit}`,
+    );
+
+    this.trace("[launch]", "require('node-pty')…");
     let proc: IPty;
     try {
       const pty = require("node-pty") as typeof import("node-pty");
+      this.trace("[launch]", "node-pty cargado; llamando a spawn()…");
       proc = pty.spawn(shell.file, shell.args, {
         name: "xterm-256color",
         cols: 80,
@@ -80,9 +116,11 @@ export class OpenCodePty implements vscode.Disposable {
         // ConPTY (Win10 1809+): es lo que VS Code usa por defecto y lo que el TUI necesita.
         useConpty: process.platform === "win32",
       });
+      this.trace("[launch]", `spawn() RETORNÓ pid=${proc.pid}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      this.output.appendLine(`${stamp()} [pty] no se pudo crear la PTY: ${msg}`);
+      this.trace("[pty]", `no se pudo crear la PTY: ${msg}`);
+      this.setStatus("error", `spawn falló: ${msg}`);
       void vscode.window.showErrorMessage(
         `OpenCode Chat: no se pudo crear la terminal (${msg}). ¿Se instaló node-pty para tu plataforma?`,
       );
@@ -92,33 +130,59 @@ export class OpenCodePty implements vscode.Disposable {
     this.proc = proc;
     this.replay = "";
     this.chainExit = chainExit;
-    // P-024: se envía el comando en su PROPIA línea. El TUI (Cobra) parsea
-    // cualquier token extra como argumento posicional, así que nunca encadenamos
-    // `exit` detrás. `chainExit` se aplica observing el prompt del shell.
-    this.writeCommand(command);
+    this.totalBytes = 0;
+
+    // P-025: si tras 2 s la PTY no manda NADA, decirlo en la barra de estado.
+    // Un "arrancando" eterno no distingue entre «spawn ok y esperando» y
+    // «spawn muerto», que es exactamente lo que necesitamos saber.
+    const spawnedPid = proc.pid;
+    setTimeout(() => {
+      if (this.proc === proc && this.totalBytes === 0) {
+        this.trace(
+          "[pty]",
+          `spawn OK (pid ${spawnedPid}) pero sin salida tras 2 s`,
+        );
+        this.setStatus(
+          "starting",
+          `spawn correcto (pid ${spawnedPid}) pero la PTY aún no manda salida…`,
+        );
+      }
+    }, 2000);
 
     proc.onData(d => {
+      const first = this.totalBytes === 0;
+      this.totalBytes += d.length;
       this.replay += d;
       if (this.replay.length > OpenCodePty.MAX_REPLAY) {
         this.replay = this.replay.slice(-OpenCodePty.MAX_REPLAY);
+      }
+      if (first) {
+        // El shell arrancó de verdad: ya no estamos bloqueados en el spawn.
+        this.trace("[pty]", `primer bloque de salida: ${d.length} B`);
+        this.setStatus("running", `shell activo, ${d.length} B recibidos`);
       }
       this.dataEmitter.fire(d);
     });
 
     proc.onExit(e => {
-      this.output.appendLine(`${stamp()} [pty] exit code=${e.exitCode}${e.signal ? ` signal=${e.signal}` : ""}`);
+      this.trace(
+        "[pty]",
+        `exit code=${e.exitCode}${e.signal ? ` signal=${e.signal}` : ""} (${this.totalBytes} B recibidos)`,
+      );
       this.proc = undefined;
-      this.promptListener?.dispose();
-      this.promptListener = undefined;
+      this.setStatus("exited", `el proceso terminó con código ${e.exitCode}`);
       this.stateEmitter.fire();
     });
 
     this.watchPrompt();
 
-    this.output.appendLine(
-      `${stamp()} [launch] loc=webview-pty shell=${shell.file} chain=${chainExit} cwd=${cwd ?? "(default)"} pid=${proc.pid}`,
+    this.trace(
+      "[launch]",
+      `listo: shell=${shell.file} chain=${chainExit} cwd=${cwd ?? "(default)"} pid=${proc.pid}`,
     );
 
+    // P-024: el comando va en su PROPIA línea; `chainExit` lo cumple `watchPrompt`.
+    this.writeCommand(command);
     this.stateEmitter.fire();
   }
 
@@ -133,6 +197,7 @@ export class OpenCodePty implements vscode.Disposable {
    * prompt del shell, la extensión envía `exit` ella misma (ver `watchPrompt`).
    */
   private writeCommand(command: string): void {
+    this.trace("[launch]", `escribiendo comando: ${JSON.stringify(command)}`);
     void this.proc?.write(`${command}\r`);
   }
 
@@ -140,13 +205,8 @@ export class OpenCodePty implements vscode.Disposable {
    * P-024 (§7.3 `chainExit`): cuando el TUI termina y el shell vuelve a
    * imprimir su prompt, la extensión envía `exit` para que la PTY muera
    * con el TUI y la sección vuelva al botón Launch.
-   *
-   * Antes esto se resolvía encadenando `opencode ; exit`, que **rompía el
-   * arranque**: Cobra parsea `exit` como argumento posicional.
    */
   private watchPrompt(): void {
-    this.promptListener?.dispose();
-    this.promptListener = undefined;
     if (!this.chainExit) {
       return;
     }
@@ -155,16 +215,15 @@ export class OpenCodePty implements vscode.Disposable {
       return;
     }
     let armado = false;
-    // El prompt del shell (cmd `X>` / PowerShell `PS X>`) solo vuelve a
-    // imprimirse cuando `opencode` ha terminado.
     const timer = setInterval(() => {
-      if (!this.proc || this.proc !== p) {
+      if (this.proc !== p) {
         clearInterval(timer);
         return;
       }
       if (!armado && /[>]\s*$/.test(this.replay)) {
         armado = true;
         clearInterval(timer);
+        this.trace("[pty]", "vuelve el prompt del shell ⇒ enviando exit");
         setTimeout(() => {
           if (this.proc === p) {
             void p.write("exit\r");
@@ -185,8 +244,6 @@ export class OpenCodePty implements vscode.Disposable {
   newSession(): void {
     const old = this.proc;
     this.proc = undefined;
-    this.promptListener?.dispose();
-    this.promptListener = undefined;
     if (old) {
       try {
         old.kill();
@@ -195,6 +252,7 @@ export class OpenCodePty implements vscode.Disposable {
       }
     }
     this.replay = "";
+    this.totalBytes = 0;
     this.stateEmitter.fire();
     this.launch();
   }
@@ -231,8 +289,6 @@ export class OpenCodePty implements vscode.Disposable {
   dispose(): void {
     const old = this.proc;
     this.proc = undefined;
-    this.promptListener?.dispose();
-    this.promptListener = undefined;
     if (old) {
       try {
         old.kill();
