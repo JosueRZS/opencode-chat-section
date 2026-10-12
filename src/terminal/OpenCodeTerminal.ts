@@ -4,11 +4,20 @@ import * as vscode from "vscode";
 
 /**
  * La única terminal de la extensión — efímera (D1):
- * se crea en `launch()` y se elimina al salir de OpenCode o al cerrar la pestaña.
+ * se crea en `launch()` y se elimina al salir de OpenCode o al cerrarse.
  * No hay puerto, ni env, ni llamadas HTTP (§1.1 / D3 v5).
+ *
+ * D7 paso 2: se abre como **terminal editor** en la columna de la derecha
+ * (`ViewColumn.Beside`) — su borde queda junto a Chat en la Secondary Side Bar
+ * ("alado"). La sección OpenCode dentro del contenedor de Chat (D7 rev.4)
+ * observa `onDidChangeState` para alternar entre welcome y "en ejecución".
  */
 export class OpenCodeTerminal implements vscode.Disposable {
   private term: vscode.Terminal | undefined;
+  private readonly stateEmitter = new vscode.EventEmitter<void>();
+
+  /** Se dispara al crear/matar la terminal (vista de estado). */
+  readonly onDidChangeState = this.stateEmitter.event;
 
   constructor(private readonly output: vscode.OutputChannel) {}
 
@@ -25,12 +34,17 @@ export class OpenCodeTerminal implements vscode.Disposable {
   /** La pestaña se fue (cierre manual, exit encadenado o shell integration). */
   markClosed(): void {
     this.term = undefined;
+    this.stateEmitter.fire();
   }
 
   /**
-   * §1.1: crea la terminal en la vista Terminal (arrastrable a la Secondary
-   * Side Bar) y lanza OpenCode encadenando `exit` para que la pestaña muera
-   * con el TUI. Si ya existe, solo la enfoca (una sola pestaña, §7.4).
+   * §1.1 + §4 (D7 paso 2): lanza OpenCode en un **terminal editor** a la derecha
+   * (`ViewColumn.Beside`) — el único split horizontal de VS Code: los contenedores
+   * de vistas en la barra son SIEMPRE verticales (P-020), y la extensión oficial
+   * hace exactamente esto ("Create a new terminal in split screen"). Encadena
+   * `exit` para que el editor muera con el TUI. Si ya existe, solo lo enfoca
+   * (una sola terminal, §7.4). La sección OpenCode en la barra permanece siempre;
+   * la terminal es lo efímero (D1).
    */
   async launch(): Promise<void> {
     if (this.term) {
@@ -39,19 +53,23 @@ export class OpenCodeTerminal implements vscode.Disposable {
     }
 
     const cfg = vscode.workspace.getConfiguration("opencodeChat");
+    const focusOnLaunch = cfg.get<boolean>("focusOnLaunch", true);
     const term = vscode.window.createTerminal({
       name: "opencode",
-      location: vscode.TerminalLocation.Panel, // NO ViewColumn.Beside (§4)
+      // D7 paso 2 — igual que la extensión oficial (MIT): split screen a la
+      // derecha, borde a borde con la Secondary Side Bar (Chat). La vista
+      // Terminal inferior NO se toca: ahí vive el shell del usuario (P-017).
+      location: { viewColumn: vscode.ViewColumn.Beside, preserveFocus: !focusOnLaunch },
       cwd: resolveCwd(cfg.get<string>("terminalCwd")),
     });
     this.term = term;
 
-    const focusOnLaunch = cfg.get<boolean>("focusOnLaunch", true);
     term.show(!focusOnLaunch);
+    this.stateEmitter.fire();
 
     const chain = cfg.get<boolean>("chainExit", true);
     const sep = isCmdShell() ? "&" : ";"; // P-010
-    this.output.appendLine(`${stamp()} [launch] sep='${sep}' chain=${chain} cwd=${term.creationOptions && "cwd" in term.creationOptions ? term.creationOptions.cwd ?? "(default)" : "(default)"}`);
+    this.output.appendLine(`${stamp()} [launch] loc=editor-beside focus=${focusOnLaunch} sep='${sep}' chain=${chain} cwd=${term.creationOptions && "cwd" in term.creationOptions ? term.creationOptions.cwd ?? "(default)" : "(default)"}`);
 
     // Encadenar exit: al morir el TUI, el shell sale y VS Code cierra la pestaña (§7.3 ①).
     term.sendText(chain ? `opencode ${sep} exit` : "opencode");
@@ -71,6 +89,7 @@ export class OpenCodeTerminal implements vscode.Disposable {
     const old = this.term;
     this.term = undefined;
     old?.dispose();
+    this.stateEmitter.fire();
     await this.launch();
   }
 
@@ -90,6 +109,9 @@ export class OpenCodeTerminal implements vscode.Disposable {
     const old = this.term;
     this.term = undefined;
     old?.dispose();
+    // El emitter NO se dispone aquí: dispose() puede llamarlo la red de seguridad ②
+    // y poder relanzar después (el provider de la vista sigue escuchando).
+    this.stateEmitter.fire();
   }
 }
 

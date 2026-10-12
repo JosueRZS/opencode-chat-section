@@ -19,8 +19,27 @@
     "chat"
   ],
   "main": "./dist/extension.js",
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:opencodeChat.status"
+  ],
   "contributes": {
+    "views": {
+      "explorer": [
+        {
+          "id": "opencodeChat.status",
+          "name": "OpenCode",
+          "icon": "$(comment-discussion)",
+          "contextualTitle": "OpenCode"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "opencodeChat.status",
+        "contents": "OpenCode no está en ejecución.\n[Launch OpenCode Chat](command:opencodeChat.launch)"
+      }
+    ],
     "commands": [
       {
         "command": "opencodeChat.launch",

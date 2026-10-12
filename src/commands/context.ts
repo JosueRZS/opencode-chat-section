@@ -1,5 +1,5 @@
-import * as vscode from "vscode";
 import type { OpenCodeTerminal } from "../terminal/OpenCodeTerminal";
+import * as vscode from "vscode";
 
 /**
  * §6: referencia de fichero con el MISMO formato que `getActiveFile()` de la

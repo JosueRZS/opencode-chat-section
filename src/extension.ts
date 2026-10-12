@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import { OpenCodeTerminal } from "./terminal/OpenCodeTerminal";
 import { sendSelection } from "./commands/context";
+import { registerStatusView } from "./views/statusTree";
+import { restoreTerminalView, ensureStatusViewInChat } from "./utils/placement";
 import { stamp } from "./utils/log";
 
 // Attribution (§0.4): patrón de terminal + sendText(x, false) tomado de la
@@ -12,6 +14,15 @@ export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel("OpenCode Chat");
   terminal = new OpenCodeTerminal(output);
   context.subscriptions.push(output, terminal);
+
+  // --- Sección "OpenCode" dentro del contenedor de Chat (D7 rev.4) ---
+  // La vista se declara en Explorer (sin warnings, P-019) y se mueve en caliente a
+  // Chat (one-shot, P-018); también deshace el movimiento indebido de la vista
+  // Terminal (P-017).
+  registerStatusView(context, terminal);
+  void ensureStatusViewInChat(output, context.globalState);
+  void restoreTerminalView(output, context.globalState);
+  output.appendLine(`${stamp()} [activate] extensión activada`);
 
   // --- Comandos (Fase 1: launch / focus / newSession / sendSelection) ---
   context.subscriptions.push(
