@@ -1,0 +1,9 @@
+{
+  "commands.launch.title": "OpenCode: Launch OpenCode Chat",
+  "commands.focus.title": "OpenCode: Focus Terminal",
+  "commands.newSession.title": "OpenCode: New Session",
+  "commands.sendSelection.title": "OpenCode: Send Selection to Agent",
+  "commands.showOutput.title": "OpenCode: Show Output",
+  "commands.toggle.title": "OpenCode: Toggle Chat + OpenCode",
+  "commands.restorePosition.title": "OpenCode: Restore Position Below Chat"
+}

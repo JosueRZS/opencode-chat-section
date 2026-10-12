@@ -38,32 +38,32 @@
     "commands": [
       {
         "command": "opencodeChat.launch",
-        "title": "OpenCode: Lanzar OpenCode Chat",
+        "title": "%commands.launch.title%",
         "icon": "$(comment-discussion)"
       },
       {
         "command": "opencodeChat.focus",
-        "title": "OpenCode: Focus Terminal"
+        "title": "%commands.focus.title%"
       },
       {
         "command": "opencodeChat.newSession",
-        "title": "OpenCode: New Session"
+        "title": "%commands.newSession.title%"
       },
       {
         "command": "opencodeChat.sendSelection",
-        "title": "OpenCode: Send Selection to Agent"
+        "title": "%commands.sendSelection.title%"
       },
       {
         "command": "opencodeChat.showOutput",
-        "title": "OpenCode: Show Output"
+        "title": "%commands.showOutput.title%"
       },
       {
         "command": "opencodeChat.toggle",
-        "title": "OpenCode: Toggle Chat + OpenCode"
+        "title": "%commands.toggle.title%"
       },
       {
         "command": "opencodeChat.restorePosition",
-        "title": "OpenCode: Reestablecer posicion del chat"
+        "title": "%commands.restorePosition.title%"
       }
     ],
     "keybindings": [
