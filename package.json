@@ -1,6 +1,6 @@
 {
-  "name": "opencode-vscode-chat",
-  "displayName": "OpenCode Chat (Side Bar)",
+  "name": "opencode-chat-section",
+  "displayName": "OpenCode Chat Section",
   "description": "Runs the official OpenCode CLI in a terminal section stacked right below Copilot Chat.",
   "version": "0.0.1",
   "publisher": "JosueRZS",
@@ -119,38 +119,38 @@
       }
     ],
     "configuration": {
-      "title": "OpenCode Chat",
+      "title": "%config.title%",
       "properties": {
         "opencodeChat.cliPath": {
           "type": "string",
           "default": "opencode",
           "scope": "machine",
-          "description": "Ruta a la binaria de OpenCode. Vacío = buscar en PATH."
+          "description": "%config.cliPath.description%"
         },
         "opencodeChat.terminalCwd": {
           "type": "string",
           "default": "${workspaceFolder}",
-          "description": "Directorio de trabajo de la terminal. Soporta ${workspaceFolder} y ~."
+          "description": "%config.terminalCwd.description%"
         },
         "opencodeChat.focusOnLaunch": {
           "type": "boolean",
           "default": true,
-          "description": "Enfocar la terminal al lanzarla."
+          "description": "%config.focusOnLaunch.description%"
         },
         "opencodeChat.disposeOnExit": {
           "type": "boolean",
           "default": true,
-          "description": "Eliminar la pestaña de terminal cuando OpenCode termina."
+          "description": "%config.disposeOnExit.description%"
         },
         "opencodeChat.chainExit": {
           "type": "boolean",
           "default": true,
-          "description": "Encadenar `exit` al lanzar, para que la pestaña se cierre al salir de OpenCode (§7.3)."
+          "description": "%config.chainExit.description%"
         },
         "opencodeChat.autoLaunch": {
           "type": "boolean",
           "default": true,
-          "description": "La sección OpenCode es la terminal: opencode se arranca sola al abrir la sección y se vuelve a lanzar cuando termina. Desactivarlo deja la sección inactiva hasta usar el comando OpenCode: Launch."
+          "description": "%config.autoLaunch.description%"
         },
         "opencodeChat.tuiTabs": {
           "type": "string",
@@ -160,22 +160,22 @@
             "auto",
             "on"
           ],
-          "description": "Pestañas de sesión de la TUI de OpenCode (la barra con el título de la sesión y '+ New session'). Se aplica SOLO a la terminal de esta sección, vía OPENCODE_CLI_CONFIG_CONTENT, y no toca tu ~/.config/opencode/cli.json global. 'off' las oculta, 'auto' las muestra si cabe sitio, 'on' las fuerza."
+          "description": "%config.tuiTabs.description%"
         },
         "opencodeChat.useConptyDll": {
           "type": "boolean",
           "default": true,
-          "description": "Usar el conpty.dll que trae node-pty en vez del del sistema. Es el camino que usa la propia terminal de VS Code en Windows, y evita los cuelgues de ConPTY del sistema (P-027)."
+          "description": "%config.useConptyDll.description%"
         },
         "opencodeChat.ptySpawnTimeout": {
           "type": "number",
           "default": 10000,
-          "description": "Milisegundos que la extensión espera a que node-pty confirme el arranque antes de dar por bloqueado el proceso PTY (P-027)."
+          "description": "%config.ptySpawnTimeout.description%"
         },
         "opencodeChat.autoPromptInstall": {
           "type": "boolean",
           "default": true,
-          "description": "Si no se detecta `opencode` en el PATH, ofrecer instalarlo con un diálogo. Aunque respondas \"No\" (o la instalación falle) la sección se abre igualmente: es una ayuda, no una puerta."
+          "description": "%config.autoPromptInstall.description%"
         },
         "opencodeChat.installMethod": {
           "type": "string",
@@ -185,7 +185,7 @@
             "npm",
             "script"
           ],
-          "description": "Cómo instalar OpenCode. `npm` → `npm install -g @opencode/cli` (el paquete vigente de la v2; `opencode-ai` está congelado en la v1). `script` → `curl -fsSL https://opencode.ai/install | bash`, solo POSIX — en Windows se recurre a npm. `auto` → npm."
+          "description": "%config.installMethod.description%"
         }
       }
     },
