@@ -32,13 +32,15 @@ Tu objetivo es construir una extensión **propia** para Visual Studio Code llama
 
 | Comportamiento | `sst-dev.opencode` | **Nosotros** |
 | --- | --- | --- |
-| Dónde abre la terminal | `location: { viewColumn: ViewColumn.Beside }` → **área de editor partido** | Vista Terminal (por defecto en panel) → **arrastrable a la Secondary Side Bar** junto a Chat |
-| Pestaña existente | `terminals.find(t => t.name === "opencode") → .show()` → **la reutiliza** | **Efímera**: se dispose al salir; `newSession` = dispose + crear |
+| Dónde se dibuja el TUI | `location: { viewColumn: ViewColumn.Beside }` → **área de editor partido** | **Dentro de la sección OpenCode** (WebviewView + xterm.js), apilada **debajo de Chat** en la Secondary Side Bar |
+| Quién corre el proceso | Terminal de VS Code (`createTerminal`) | **PTY propia** (`node-pty`) → por eso puede vivir en una vista (P-022) |
+| Instancia existente | `terminals.find(t => t.name === "opencode") → .show()` → **la reutiliza** | **Efímera**: `onExit` vuelve al botón Launch; `newSession` = matar PTY + crear |
 | Alternancia con Copilot | ❌ No existe | ✅ `opencodeChat.toggle` |
 | Trigger de instalación | ❌ No existe | ✅ Guard `ensureOpenCode()` con modal Sí/No |
 | Contexto (`@file#L10-20`) | ✅ Sí (`getActiveFile()`) | ✅ Mismo formato, con sanitización añadida |
-| Canal de contexto | ✅ `--port` + `POST /tui/append-prompt` (**roto en v2**) | ✅ `sendText(texto, false)` — **único canal válido en v2** (§1.1) |
-| Ciclo de vida de la pestaña | ❌ Reutiliza la pestaña indefinidamente | ✅ Efímera: se cierra al salir de OpenCode (§7) |
+| Canal de contexto | ✅ `--port` + `POST /tui/append-prompt` (**roto en v2**) | ✅ `pty.write(texto)` sin `\r` — **único canal válido en v2** (§1.1) |
+| Ciclo de vida | ❌ Reutiliza la pestaña indefinidamente | ✅ Efímera: la PTY muere al salir de OpenCode (§7) |
+| Shell del usuario | Intacta (su terminal es aparte) | **Intacta**: la vista Terminal del panel inferior no se toca (P-017) |
 
 ### 0.4 Licencia y marca (obligatorio antes de publicar)
 
@@ -48,62 +50,84 @@ Tu objetivo es construir una extensión **propia** para Visual Studio Code llama
 
 ---
 
-## 1. 🏗️ Arquitectura (v5 — sin llamadas HTTP)
+## 1. 🏗️ Arquitectura (v6 — WebviewView + PTY, sin llamadas HTTP)
 
 ```text
-┌──────────────── Secondary Side Bar ────────────────┐
-│  [ Chat de GitHub Copilot ]  [ Terminal: opencode ] │  ← pestañas juntas
-└────────────────────────────────────────────────────┘
+┌──────────────── Secondary Side Bar ──────────────────┐
+│  [ Chat de GitHub Copilot ]                           │
+│  ──────────────────────────────────────────────────── │
+│  [ OpenCode ]  ← WebviewView (xterm.js) con el TUI    │  ← secciones apiladas
+└───────────────────────────────────────────────────────┘
                      ▲                    ▲
-        solo movemos el foco aquí ←→ aquí │
+        se mueve a Chat aquí ←→ Chat      │
                      │                    │
-   Extension Host (Node puro) ─────────────┴──  Webview ✗  (NO existe)
-   · createTerminal() efímera               · Sin UI propia
-   · comandos + keybindings                 · El TUI de OpenCode ES la UI
-   · canal sendText(texto, false) — sin HTTP
-   · detección de salida → dispose de la pestaña
-   · guard de instalación
+   Extension Host (Node puro) ────────────┴──  WebviewView ✓
+   · node-pty (PTY real, N-API)             · xterm.js + FitAddon
+   · spawn del shell + `opencode`           · el TUI se PINTA aquí
+   · onExit → vuelve al botón Launch        · teclado → PTY · resize → PTY
+   · sin HTTP, sin parseo de salida         · retainContextWhenHidden
 ```
 
-### 1.1 El canal (D3 — **reescrito en v5** tras el spike de Fase 0)
+> **P-022 (v6):** `vscode.window.createTerminal` solo admite `TerminalLocation.Panel`
+> o `.Editor` — **nunca una vista** (P-017). Por eso el TUI no podía vivir "dentro" de
+> la sección OpenCode. La solución es dejar de usar el terminal de VS Code y alojar el
+> TUI en un **WebviewView con xterm.js**, con la PTY corriendo en la extensión.
 
-> ⚠️ **El mecanismo v4 estaba roto.** Contra OpenCode **v2.0.26** (ver `PROBLEMAS.md` P-005/P-007):
-> `opencode --port N` → `Unrecognized flag: --port` · `GET /app` → **no existe** · `POST /tui/append-prompt` → **404**.
-> La doc `opencode.ai/docs/server/` que describía esos endpoints **es de v1**.
-> **v5 elimina el canal HTTP por completo** → sin puerto, sin env, sin auth, sin `waitFor`.
+### 1.1 El canal (D3 → **v6: PTY directa**)
+
+> ⚠️ **v4 estaba roto** (ver `PROBLEMAS.md` P-005/P-007): `--port` no existe en v2.0.26,
+> `GET /app` y `POST /tui/append-prompt` son de v1 → **404**.
+> v5 eliminó el canal HTTP. **v6 va más lejos:** en vez del terminal de VS Code
+> (`sendText`), usamos una **PTY propia** con `node-pty`.
 
 ```ts
-// 1. Terminal en la vista Terminal (arrastrable a la Secondary Side Bar)
-const term = vscode.window.createTerminal({
-  name: "opencode",
-  location: vscode.TerminalLocation.Panel,   // ← NO ViewColumn.Beside
-  cwd,
+// 1. PTY real sobre el shell del usuario (P-001: nunca spawn('opencode') a pelo).
+const shell = resolveShell();                     // cmd / powershell / pwsh / bash…
+const pty = ptySpawn(shell.file, shell.args, {
+  name: "xterm-256color", cols: 80, rows: 24, cwd,
+  env: envWithPath(),                             // añade npm global al PATH
+  useConpty: true,                                // Windows 10 1809+
 });
-term.show();
 
-// 2. Lanzar. Encadenamos `exit` para que la pestaña muera con el TUI (D1).
-//    `;` vale en PowerShell/bash/zsh/fish/Git Bash; `&` solo hace falta en cmd (P-010).
-const sep = isCmdShell() ? "&" : ";";
-term.sendText(`opencode ${sep} exit`);
+// 2. Lanzar. `exit` encadenado hace que la PTY muera con el TUI → vuelve el botón Launch.
+const sep = isCmdShell() ? "&" : ";";             // P-010
+pty.write(`opencode ${sep} exit\r`);
 
 // 3. Inyectar contexto — ÚNICO canal en v2 (no hay endpoint equivalente):
 //    teclea en el compositor del TUI sin enviar (el usuario revisa y pulsa Enter).
-term.sendText(texto, /* addNewLine */ false);
+pty.write(texto);                                 // sin \r = sin Enter
+
+// 4. Ciclo de vida: `onExit` de la PTY (P-016: onDidEndTerminalShellExecution
+//    no servía en PS 5.1; y ya no hay terminal de VS Code que observar).
+pty.onExit(({ exitCode }) => { /* estado = idle → botón Launch */ });
 ```
 
-**Por qué `sendText(x, false)` y no la API:** `POST /api/session/{id}/prompt` existe en v2, pero **envía** el mensaje y **dispara el agente** — no rellena el compositor para revisión. No es equivalente al antiguo `append-prompt`. Reservado como opción futura de "autoenvío" (requeriría Basic Auth: ver §9).
+**Por qué PTY y no `sendText`:** `sendText` vive en el terminal de VS Code, que no
+puede estar en una vista. La PTY es un proceso hijo nuestro: la pintamos con xterm.js
+donde queramos. El TUI de OpenCode ve un tty real, así que arranca igual que en una
+terminal normal (verificado: pinta `Ask anything…`, versión `2.0.26`, modelo activo).
 
-**Bonus de robustez:** al no depender de `--port` ni de endpoints, **el mismo mecanismo funciona en OpenCode v1 y v2**.
+**`node-pty` es N-API** (`napi_register_module_v1`) → ABI estable, carga en el extension
+host de Electron **sin recompilar** por cada versión de VS Code. Se empaqueta como
+**externo** en esbuild porque resuelve su `.node` por ruta relativa
+(`prebuilds/<platform>-<arch>`) — por eso `.vscodeignore` incluye `node-pty` completo.
 
-**Si el usuario prefiere no encadenar `exit`:** red de seguridad `onDidEndTerminalShellExecution` (§7.3).
+**Por qué `pty.write(texto)` sin `\r`:** único canal en v2 — rellena el compositor para
+revisión. `POST /api/session/{id}/prompt` **envía** y dispara el agente: no es equivalente.
+
+**Si el usuario prefiere no encadenar `exit`:** la PTY queda viva con el prompt del shell
+(fallback útil); el botón Launch no vuelve hasta que la mate.
 
 ### 1.2 Descartado explícitamente
 
-- ✗ Webview con chat propio (React/Vite/Tailwind) — OpenCode ya lo hace.
-- ✗ `@opencode-ai/sdk` — innecesario: **ya no hay canal HTTP** (§1.1). Basta `sendText`.
-- ✗ **Cualquier llamada al servidor v2** (`/api/*`, `/app`, `/tui/*`) — descartado por el spike (P-005…P-009).
+- ✗ Webview con **chat propio** (React/Vite/Tailwind) — OpenCode ya lo hace.
+  (El webview de v6 **no recrea el chat**: solo aloja xterm.js, que pinta el TUI real.)
+- ✗ `@opencode-ai/sdk` — innecesario: **no hay canal HTTP** (§1.1).
+- ✗ **Cualquier llamada al servidor v2** (`/api/*`, `/app`, `/tui/*`) — P-005…P-009.
 - ✗ Parseo de la salida del TUI (`strip-ansi`, JSON, buscar `/exit` en stdout) — **nunca leer el stdout**.
+  (`onExit` de la PTY es la única señal de fin.)
 - ✗ Fork o duplicado de la extensión oficial.
+- ✗ `vscode.window.createTerminal` para OpenCode — no puede vivir en una vista (P-017/P-022).
 
 ---
 
@@ -111,33 +135,33 @@ term.sendText(texto, /* addNewLine */ false);
 
 ```text
 opencode-vscode-chat/
-├── package.json                 # Manifest: commands, keybindings, configuration
-├── tsconfig.json
-├── .vscodeignore
-├── .vscode/
-│   ├── launch.json              # F5 → Extension Development Host
-│   └── tasks.json               # watch de tsc + esbuild
-├── images/
-│   ├── icon.svg
-│   └── setup-guide.png          # Captura del arrastre a la barra secundaria
-└── src/
-    ├── extension.ts             # activate/deactivate + registro de comandos
-    ├── guards/
-    │   └── ensureOpenCode.ts    # ★ Guard único: detecta / instala / aprueba (§8)
+├ package.json                 # Manifest: commands, keybindings, configuration
+├ tsconfig.json                # Extensión (Node, CommonJS)
+├ tsconfig.webview.json        # Webview (DOM, ESNext) — tipos aparte
+├ .vscodeignore                # incluye node-pty completo (nativo externo)
+├ .vscode/
+│   ├── launch.json            # F5 → Extension Development Host
+│   └── tasks.json             # build de esbuild
+└ src/
+    ├── extension.ts           # activate/deactivate + registro de comandos
     ├── terminal/
-    │   ├── OpenCodeTerminal.ts  # Crear / encontrar / enfocar la terminal efímera (§1.1)
-    │   └── lifecycle.ts         # ★ detección de salida del TUI → dispose() (§7)
+    │   └── OpenCodePty.ts     # ★ PTY real (node-pty): spawn / write / resize / onExit
+    ├── views/
+    │   └── TuiView.ts         # ★ WebviewViewProvider: la sección con xterm.js (§4)
+    ├── webview/
+    │   ├── client.ts          # ★ cliente del webview: xterm.js + FitAddon + mensajes
+    │   ├── client.css         # estilos (colores del tema de VS Code)
+    │   └── css.d.ts           # declaración de imports de CSS
     ├── commands/
-    │   ├── launch.ts            # Launch OpenCode Chat (punto de entrada principal)
-    │   ├── toggleChats.ts       # Alternancia OpenCode ⇄ Copilot Chat
-    │   ├── focus.ts             # focus / focusVscodeChat
-    │   └── context.ts           # sendSelection, insertFileRef, newSession
+    │   └── context.ts         # sendSelection, buildFileRef, sanitizeForComposer
     └── utils/
-        ├── detection.ts         # Resolución de `opencode` en PATH (win/darwin/linux)
-        ├── shell.ts             # isCmdShell() → separador `;` vs `&` (P-010)
-        ├── installer.ts         # ★ Instalador oficial por plataforma (§8)
-        └── setup.ts             # Guía de colocación en la barra secundaria
+        ├── placement.ts       # mueve la vista a Chat + repara la vista Terminal
+        ├── shell.ts           # resolveShell / envWithPath / buildOpencodeCommand (P-010)
+        └── log.ts             # stamp() para el canal de salida
 ```
+
+> **Build de dos bundles** (`npm run build`): `dist/extension.js` (Node, con `node-pty`
+> externo) y `dist/webview.js` + `dist/webview.css` (browser, con xterm.js dentro).
 
 ---
 
@@ -219,38 +243,56 @@ El README llevará **también** el bloque "compatibilidad con la extensión ofic
 
 ---
 
-## 4. 🪟 Posicionamiento en la barra secundaria
+## 4. 🪟 Posicionamiento en la barra secundaria (D7 — probado en F5)
 
-**Verificado:** sí se puede. VS Code admite mover la vista **Terminal** a la barra lateral secundaria, donde los terminales conviven como pestañas.
+La sección **"OpenCode"** vive **dentro del contenedor de Chat** (`workbench.panel.chat`),
+apilada **debajo** de Chat. Chat y OpenCode quedan visibles a la vez, sin pestañas.
 
-- [Custom Layout — VS Code](https://code.visualstudio.com/docs/configure/custom-layout): *"At any time, you can drag and drop views and panels into the Primary or Secondary Side Bar."*
-- [microsoft/vscode#318095](https://github.com/microsoft/vscode/issues/318095): *"Moving the Terminal view to the Primary or Secondary Side Bar **relocates** it"*. Su caso de uso es literalmente el nuestro: *"Secondary Side Bar (right): an AI agent's terminal… pinned where chat-style UIs naturally belong"*.
-- Empírico: extensión [Secondary Sidebar Terminal](https://marketplace.visualstudio.com/items?itemName=ytyng.secondary-terminal), guías de arrastre.
+### 4.1 Por qué hace falta mover la vista *en caliente*
 
-> **Nota clave:** por eso usamos `TerminalLocation.Panel` (vista Terminal) y **no** `ViewColumn.Beside` como la oficial. Lo que se arrastra a la barra secundaria es la *vista Terminal*; una pestaña de editor no se puede arrastrar ahí.
+- Se **declara** la vista con la clave **`explorer`** (P-019): `viewsExtensionPoint.getViewContainer()`
+  resuelve `case 'explorer'` directamente, pero para cualquier otro valor **prefija**
+  `workbench.view.extension.${value}` → el contenedor de Chat (`workbench.panel.chat`, id de longitud
+  fija) es **inalcanzable por declaración** y da warning.
+- Se **mueve** con `vscode.moveViews({ viewIds, destinationId: "workbench.panel.chat" })`
+  **en cada activación** (P-021): `moveViews` es no-op si ya está en Chat; si un drag del usuario
+  la mandó a un contenedor-servicio generado (`workbench.views.service.auxiliarybar.<uuid>`,
+  invisible sin pestañas), el movimiento la repara. `cleanUpGeneratedViewContainer` borra el huérfano.
+- `addViews` **añade al final** ⇒ queda **debajo de Chat** (patrón Docker/Explorer).
+- `contextualTitle: "OpenCode"` + `name === containerTitle` ⇒ `calculateTitle()` **no** antepone
+  el prefijo del contenedor (cabecera limpia, sin `EXPLORADOR:`).
 
-### 4.1 D1 — una sola terminal efímera
+### 4.2 El TUI dentro de la sección (P-022)
 
-**Una única pestaña**, del mismo estilo que la shell por defecto del panel inferior (`Ctrl+J`). El usuario **la acepta como su única shell**, por lo que el coste histórico de reubicar todas las terminales queda anulado: no hay otras shells que perder.
+**Imposible con el terminal de VS Code**: `TerminalLocation` solo tiene `Panel | Editor`
+(P-017) y las vistas en barra son SIEMPRE verticales (P-020) — no hay split horizontal ni
+pestañas con la activity bar oculta (P-018).
 
-Alternativas documentadas por si cambia el layout:
+Por eso la sección es un **WebviewView** con xterm.js y la PTY corre en la extensión:
 
-| # | Layout | Consecuencia |
+| Pieza | Papel |
+| --- | --- |
+| `views/TuiView.ts` | `WebviewViewProvider` + `retainContextWhenHidden` (el TUI sobrevive a ocultar la sección) |
+| `webview/client.ts` | xterm.js + FitAddon; `onData` → `input` · `ResizeObserver` → `resize` |
+| `terminal/OpenCodePty.ts` | `node-pty`: `write` / `resize` / `onExit` (única señal de fin, P-016) |
+| Botón Launch | vive **dentro** del webview (reemplaza al `viewsWelcome`) |
+
+### 4.3 El shell del usuario se queda abajo
+
+opencode **ya no** usa `vscode.window.createTerminal`, así que la vista Terminal del panel
+inferior **no se toca**: ahí vive el shell del usuario (lección de P-017). `restoreTerminalView()`
+sigue existiendo solo como reparación one-shot del daño de aquella época.
+
+### 4.4 Historial de iteraciones (por qué acabamos aquí)
+
+| Rev | Qué se probó | Resultado |
 | --- | --- | --- |
-| **A (elegido)** | Vista Terminal arrastrada a la Secondary Side Bar. | Nuestra pestaña efímera queda junto a Chat; es también la única shell del usuario. |
-| B | Panel a la derecha (`workbench.panel.defaultLocation: "right"`). | Terminal a la derecha sin tocar la barra secundaria; Copilot queda fuera de la columna. |
-| C | Terminal como pestaña de editor (`terminal.integrated.defaultLocation: "editor"`). | Convive con el código, **no** junto a Copilot. |
-
-### 4.2 `opencodeChat.setupGuide`
-
-No existe API pública ni punto de contribución para colocar una terminal en la barra secundaria (`terminal.integrated.defaultLocation` solo admite `"view" | "editor"`; `viewsContainers` solo `activitybar | panel`). La colocación es **manual, una sola vez, y persistente**.
-
-La guía (`showInformationMessage` con acción + `QuickPick`) debe:
-1. Ejecutar `workbench.action.toggleAuxiliaryBar` para que la barra sea visible.
-2. Ejecutar `workbench.action.openView` con la vista `terminal` para enfocarla.
-3. Mostrar instrucciones de arrastre con `images/setup-guide.png` (también en el README).
-4. Ofrecer las alternativas B y C de §4.1.
-5. Registrar en `globalState` que ya se mostró.
+| v1 | Mover la vista Terminal a la barra | ✗ subía el shell del usuario (P-017) |
+| rev.2 | Revertir + contenedor propio | ✗ pestañas que se sustituyen (P-018) |
+| rev.3 | Vista en `workbench.panel.chat` declarada | ✗ warning `ViewContainerDoesnotExist` (P-019) |
+| rev.4 | Clave `explorer` + hot move one-shot | ✗ el drag del usuario la rompía (P-021) |
+| rev.5 | Reafirmar en cada activación | ✓ colocación estable |
+| **v6** | **WebviewView + xterm.js + node-pty** | ✓ **el TUI se dibuja DENTRO de la sección** |
 
 ---
 
@@ -496,11 +538,12 @@ Cada fase se confirma antes de pasar a la siguiente.
 
 ## 11. 🧪 Pruebas, Empaquetado y Publicación
 
-- **Unitarias:** algoritmo de `toggle`, sanitización para `sendText`, generación de `@relpath` / `#L10` / `#L10-20` (casos borde: selección vacía, multilínea, fichero fuera del workspace), resolución de CLI en PATH (win/darwin/linux), **máquina de estados del guard (Sí/No/éxito/fallo)**, **selección de separador `;`/`&` según el perfil de terminal** (§7.2).
-- **Integración** (`@vscode/test-electron`): creación y **dispose al salir** de la terminal, registro de comandos y keybindings, degradación de `workbench.action.chat.open`.
-- **E2E manual:** F5 → Extension Development Host → Fase 0 completa + flujo de instalación con `cliPath` apuntando a un binario inexistente.
-- **Build:** solo `esbuild`. Sin bundler de front-end, **sin dependencias npm de runtime**.
-- **Empaquetado:** `vsce package` → `.vsix`; `.vscodeignore` excluye `.vscode`, `src`, tests y node_modules de desarrollo.
+- **Unitarias:** sanitización para el compositor, generación de `@relpath` / `#L10` / `#L10-20` (casos borde: selección vacía, multilínea, fichero fuera del workspace), `resolveShell()` (win/darwin/linux, perfil con/sin `path`), `envWithPath()`, `buildOpencodeCommand()` (**selección `;`/`&` según el shell**, P-010), **máquina de estados del guard (Sí/No/éxito/fallo)**.
+- **Integración** (`@vscode/test-electron`): registro de comandos y keybindings, degradación de `workbench.action.chat.open`, reproducción del mensaje `launch` del webview.
+- **E2E manual:** F5 → Extension Development Host → el TUI aparece **dentro de la sección OpenCode**, debajo de Chat. Validar T7 (compositor), T12 (PTY en el webview) y T13 (`moveViews` con WebviewView).
+- **Humo de PTY (ya hecho):** script que spawnea `cmd.exe` + `opencode` con `node-pty` → el TUI pinta ANSI real y `resize` lo repinta. Sirve para diagnosticar sin abrir VS Code.
+- **Build:** `esbuild` ×2 (`dist/extension.js` + `dist/webview.js`/`.css`) tras `tsc` ×2 (extensión y webview, tipificados aparte).
+- **Empaquetado:** `vsce package` → `.vsix` de **4,3 MB**. `.vscodeignore` excluye `src`, maps, `.pdb` y los paquetes de desarrollo; **incluye `node-pty` completo** (nativo externo, obligatorio en runtime).
 - **CI:** `lint` → `check-types` → `test` → `package` en Windows/macOS/Linux.
 
 ---
@@ -513,18 +556,20 @@ Sin webview, sin SDK, sin IPC, sin streaming. TypeScript puro sobre la API de VS
 
 | # | Riesgo | Severidad | Mitigación |
 | --- | --- | --- | --- |
-| **R1** | Colocación en la barra secundaria **manual, una sola vez** (no hay API). | **Media** | `setupGuide` + README con capturas (§4.2). VS Code persiste la posición. |
-| **R2** | **OpenCode es hijo del shell**: al hacer `/exit` la pestaña **no muere sola**. Y en v2 el background service es independiente → **imposible detectarlo por HTTP** (P-009). | **Media** | `exit` encadenado (primaria) + shell integration (red de seguridad) + `onDidCloseTerminal` (§7.3). Validar T9/T10 en F5. |
+| **R1** | ~~Colocación manual, una sola vez~~ | — | **Resuelta en D7 rev.4/rev.5**: la vista se declara con clave `explorer` y se **mueve sola** al contenedor de Chat en cada activación (§4.1). Sin arrastre, sin settings. |
+| **R2** | **OpenCode es hijo del shell**: al hacer `/exit` la PTY no muere sola. Y en v2 el background service es independiente → **imposible detectarlo por HTTP** (P-009). | **Media** | `exit` encadenado (primaria) + **`onExit` de la PTY** como señal única (§1.1). Ya no depende de shell integration (P-016). |
 | **R3** | `workbench.action.chat.open` no es API estable → el `toggle` puede romperse. | **Media** | `getCommands(true)` + `try/catch` + fallback (§5.1). Detectar dónde estamos no depende de esa API. |
 | **R4** | **Solapamiento con `sst-dev.opencode`** (D2): hace lo mismo salvo posición, ciclo de vida, toggle e instalación. | **Media** | Diferenciación explícita en §0.3. Keybindings sin colisión → puede convivir o sustituir. |
-| **R5** | `sendText` contra un TUI en modo raw/alternate-screen: saltos de línea, multilínea, diálogos abiertos. **En v2 es el ÚNICO canal** (P-007) → toda la funcionalidad depende de él. | **Alta** | Sanitización obligatoria (§6) + validar T7 en F5 **antes** de construir el resto. |
+| **R5** | Inyectar contexto en un TUI en modo raw/alternate-screen: saltos de línea, multilínea, diálogos abiertos. **En v2 es el ÚNICO canal** (P-007). | **Media** (↓ de Alta) | Sanitización obligatoria (§6) + validar T7 en F5. **`pty.write` es más fiable que `sendText`**: escribimos directamente en el tty, sin la capa del terminal de VS Code. |
 | **R6** | **Instalación frágil en Windows**: PATH desactualizado, `.cmd` vs `.exe`, falta de `npm` (scoop/choco **no sirven en v2**, P-011). | **Media** | §8.3: npm como primario + binario como alternativa; re-detección + `reloadWindow`. |
-| **R7** | Separador de shell equivocado (`;` en `cmd.exe`) → OpenCode **ni siquiera arranca**. | **Baja** | Solo `cmd` rechaza `;`; leer el perfil de terminal y usar `&` (P-010). Red de seguridad: shell integration (§7.3). |
+| **R7** | Separador de shell equivocado (`;` en `cmd.exe`) → OpenCode **ni siquiera arranca**. | **Baja** | Solo `cmd` rechaza `;`; `resolveShell()` lee el perfil de terminal y usa `&` (P-010). |
 | **R7b** | ~~Colisión de puerto (la oficial usa aleatorios 16384–65535)~~ | — | **Obsoleto en v5**: no hay puerto (P-005). |
 | **R8** | Usuario dice "No" y el modal se repite en cada comando. | **Baja** | `globalState['installDeclined']` (§8.4). |
-| **R9** | Cambios de OpenCode entre versiones (v1→v2 ya rompió los endpoints; v3 podría cambiar el TUI). | **Media** | v5 **no depende de ningún endpoint** → insensible a esa clase de cambios. Fijar versión mínima probada en README; encapsular lanzamiento en `utils/shell.ts`. **Queda por verificar** que `@fichero#L10-20` sigue parseándose en el TUI v2 (T7). |
-| **R10** | Fuga de contexto: leer/loguear el stdout del TUI. | **Baja** | §9: prohibido por diseño. |
+| **R9** | Cambios de OpenCode entre versiones (v1→v2 ya rompió los endpoints; v3 podría cambiar el TUI). | **Media** | **v6 no depende de ningún endpoint** ni de parsear la salida: solo inyecta teclas en un tty y pinta ANSI. Insensible a esa clase de cambios. |
+| **R10** | Fuga de contexto: leer/loguear la salida del TUI. | **Baja** | §9: prohibido por diseño. El `replayBuffer` existe **solo** para repintar xterm tras reabrir la sección; no se parsea ni se envía a ningún sitio. |
 | **R11** | Nombre/marca, licencia y atribución al publicar. | **Baja** | §0.4. |
+| **R12** | **NUEVO:** `node-pty` es un módulo nativo → podría no cargar en el extension host de Electron. | **Baja** | Verificado: `node-pty@1.1.0` es **N-API** (`napi_register_module_v1`) ⇒ ABI estable, sin recompilar por versión de VS Code. Humo en F5 confirma que el TUI pinta (8,8 KB de ANSI). `try/catch` + `showErrorMessage` si falla. |
+| **R13** | **NUEVO:** el VSIX debe llevar `node-pty` completo (externo en esbuild; resuelve su `.node` por ruta relativa). | **Media** | `.vscodeignore` incluye `node_modules/node-pty/**` (verificado con `vsce ls`: 8 binarios `.node` + `winpty.dll` + `conpty.dll`). VSIX de 4,3 MB. |
 
 ### Esfuerzo estimado (MVP = Fases 0–6)
 
@@ -548,12 +593,15 @@ Webview con chat propio, React/Vite/Tailwind, IPC, streaming SSE, `@opencode-ai/
 
 | # | Estado | Detalle |
 | --- | --- | --- |
-| **D1** | ✅ Cerrada | Una única pestaña/terminal, tipo shell por defecto. **Efímera**: se crea al lanzar, se elimina al salir. OpenCode persiste sus sesiones; nosotros no persistimos la pestaña. El usuario la acepta como su única shell. |
+| **D1** | ✅ Cerrada | Una **única instancia** de OpenCode. **Efímera**: se crea al lanzar, la PTY muere al salir. OpenCode persiste sus sesiones; nosotros no persistimos nada. El shell del usuario queda **intacto** en el panel inferior (v6: ya no tocamos la vista Terminal). |
 | **D2** | ✅ **Cerrada (default seguro)** | Keybindings **sin colisión** con la oficial → funciona instalando solo la nuestra o ambas. El README documenta el bloque alternativo por si el usuario quiere adoptar `ctrl+escape` / `ctrl+shift+escape` / `ctrl+alt+K`. |
-| **D3** | ✅ **Reabierta y cerrada en v5 (Fase 0)** | v4 seguía el mecanismo de la extensión oficial (`--port` + poll `/app` + `POST /tui/append-prompt`), pero **en OpenCode v2.0.26 eso no existe**: `--port` → flag desconocido (P-005), `/app` → ausente del spec (P-003), `/tui/append-prompt` → 404 (P-007). **v5: `sendText('opencode' + sep + ' exit')` para lanzar y `sendText(texto, false)` para inyectar — sin ninguna llamada HTTP** (P-012). |
-| **D4** | ✅ **Corregida en v5** | v4 decía "sin `OPENCODE_SERVER_PASSWORD`" — **falso en v2**: *todos* los servidores exigen Basic Auth (`opencode` + password de `~/.config/opencode/service.json`, o el que imprime `serve`) (P-006). **Pero no aplica**: v5 no hace ninguna llamada HTTP. Queda documentado por si se reintroduce el canal. |
+| **D3** | ✅ **Reabierta, cerrada en v5 y refinada en v6** | v4 seguía el mecanismo de la oficial (`--port` + poll `/app` + `POST /tui/append-prompt`), pero **en OpenCode v2.0.26 eso no existe** (P-005/P-003/P-007). **v5: sin llamadas HTTP** (P-012). **v6: la PTY propia (`node-pty`) sustituye a `vscode.Terminal`**, porque el terminal de VS Code no puede vivir en una vista. Lanzar = `pty.write('opencode' + sep + ' exit\r')`; inyectar = `pty.write(texto)` **sin** `\r`. |
+| **D4** | ✅ **Corregida en v5** | v4 decía "sin `OPENCODE_SERVER_PASSWORD`" — **falso en v2** (P-006). **Pero no aplica**: v6 no hace ninguna llamada HTTP. Queda documentado por si se reintroduce el canal. |
 | **D5** | ✅ Cerrada | Alcance **completo**: `launch` + `toggle` + `setupGuide` + `newSession` + `sendSelection` + `insertFileRef`. |
 | **D6** | ✅ Cerrada | **Extensión propia**, no PR. Los 4 puntos se implementan sin negociación de diseño ni cola de revisión. |
+| **D7** | ✅ **Cerrada en v6** | La sección OpenCode se apila **debajo de Chat** dentro de su contenedor (patrón Docker/Explorer), declarada con clave `explorer` y movida en caliente **en cada activación**. El TUI se dibuja **dentro** de esa sección (WebviewView + xterm.js + PTY). Ver §4 e historial de rev.1→v6. |
+| **D8** | ✅ **Cerrada en v6** | **Webview + xterm + PTY** en lugar del terminal de VS Code. Aceptado por el usuario a sabiendas del coste: módulo nativo (`node-pty`) y emulación de terminal propia. Contraprestación asumida: la sección es nuestra, no un widget de VS Code. |
+| **D9** | ✅ Cerrada | `engines.vscode` subido a **^1.140.0** (vsce rechazaba empaquetar con ^1.95.0 frente a `@types/vscode` ^1.140.0). El usuario corre 1.141. |
 
 ### 13.2 Incógnitas técnicas — Fase 0
 
@@ -565,11 +613,13 @@ Webview con chat propio, React/Vite/Tailwind, IPC, streaming SSE, `@opencode-ai/
 | **T4** | ¿`activeTerminal` cambia cuando el foco pasa al chat? | ⚪ **F5** | Si no cambia → usar el estado `last` de §5.2. |
 | **T5** | **Windows:** ¿`where.exe`/`sendText` resuelven `opencode`? | 🟢 **Cerrada** | Devuelve **2 entradas** y la primera no es ejecutable (P-001) → **siempre dentro del shell**, jamás `shellPath`. |
 | **T6** | ¿`_EXTENSION_OPENCODE_PORT` legible en `creationOptions.env`? | ⚪ **Obsoleta** | No hay puerto en v5 (P-005). Estado en `Map<Terminal, Estado>`. |
-| **T7** | ¿`sendText(texto, false)` llega limpio al prompt del TUI en modo raw? ¿Y `@fichero#L10-20` sigue parseándose? | ⚪ **F5 — PRIORIDAD ALTA** | Es el **único** canal en v2 (P-007) → toda la funcionalidad depende de él (R5). Validar **antes** de construir el resto. Reforzar sanitización (§6); abortar si hay diálogo abierto. |
+| **T7** | ¿Limpia `@fichero#L10-20` al compositor del TUI? ¿Y sobrevive a un cambio de modelo? | ⚪ **F5 — PRIORIDAD ALTA** | **v6: `pty.write(texto)` sin `\r`** — escribe directamente en el tty, sin la capa del terminal de VS Code, así que es más fiable que el `sendText` viejo. Sigue siendo el **único** canal en v2 (P-007) → toda la funcionalidad depende de él (R5). Validar **antes** de construir el resto. |
 | **T8** | **OpenCode v1 vs v2**: ¿siguen `/app` y `/tui/append-prompt`? | 🟢 **Cerrada** | **No.** `/app` ausente del spec (P-003); `/tui/*` → 404 (P-007); API prefijada con `/api` + Basic Auth (P-006); background service (P-008). |
 | **T9** | ¿Dispara `onDidEndTerminalShellExecution` con `opencode` en PowerShell 5.1? | ⚪ **F5** | Si no dispara, el `exit` encadenado (①) sigue cubriendo. **`cmd.exe` no tiene integración** (P-010). |
 | **T10** | ¿El `exit` encadenado cierra la pestaña en el shell por defecto? | ⚪ **F5** | Si no cierra → promover ② (shell integration) a señal primaria. |
 | **T11** | ¿Está Git Bash instalado? (es uno de los dos shells con integración en Windows) | ⚪ Rápido | `where.exe bash` o el perfil de terminal configurado en VS Code. |
+| **T12** | **NUEVO v6:** ¿`node-pty` carga en el extension host de Electron y el TUI pinta dentro del webview? | 🟡 **Media — humo OK, Falta F5** | Verificado **fuera** de VS Code: N-API (`napi_register_module_v1`), PTY spawnea `cmd.exe` y el TUI de OpenCode pinta 8,8 KB de ANSI (se ve `Ask anything…`, `2.0.26`, `Build · MiMo-V2.6-Flash Free`), y `resize` a 120x35 lo repinta. **Queda**: comprobar el mismo recorrido dentro del webview en F5 (CSP, `asWebviewUri`, `retainContextWhenHidden`). |
+| **T13** | **NUEVO v6:** ¿`vscode.moveViews` funciona igual con un WebviewView que con un TreeView? | ⚪ **F5** | `moveViews` opera sobre descriptores de vista, no sobre el tipo de datos — debería funcionar. Si no, la sección aparecería en Explorer en vez de debajo de Chat. |
 
 ### 13.3 Datos del entorno — ✅ **COMPLETADO**
 

@@ -1,0 +1,62 @@
+/* Estilos de la sección OpenCode (WebviewView). Los colores vienen del tema de VS Code. */
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--vscode-editor-background, #1e1e1e);
+  color: var(--vscode-foreground, #cccccc);
+  font-family: var(--vscode-font-family, system-ui, sansospace, sans-serif);
+  font-size: var(--vscode-font-size, 13px);
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* Estado "no lanzado": el botón Launch ocupa el hueco del TUI. */
+.launch {
+  padding: 12px;
+}
+
+.launch p {
+  margin: 0 0 10px 0;
+}
+
+.vscode-button {
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #ffffff);
+  border: none;
+  padding: 6px 14px;
+  border-radius: 2px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.vscode-button:hover {
+  background: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+.vscode-button:focus {
+  outline: 1px solid var(--vscode-focusBorder, #007fd4);
+  outline-offset: 2px;
+}
+
+/* Contenedor del TUI: debe ocupar TODO el alto de la sección para que xterm
+   calcule bien las filas (FitAddon mide este elemento). */
+.terminal {
+  height: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 2px;
+}
+
+.terminal .xterm {
+  height: 100%;
+}
+
+.terminal .xterm-viewport {
+  background-color: transparent !important;
+}

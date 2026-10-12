@@ -1,4 +1,4 @@
-import type { OpenCodeTerminal } from "../terminal/OpenCodeTerminal";
+import type { OpenCodePty } from "../terminal/OpenCodePty";
 import * as vscode from "vscode";
 
 /**
@@ -43,7 +43,7 @@ export function sanitizeForComposer(text: string): string {
 }
 
 /** `opencodeChat.sendSelection` — inyecta el contexto del editor en el compositor (T7). */
-export async function sendSelection(term: OpenCodeTerminal): Promise<void> {
+export async function sendSelection(pty: OpenCodePty): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
     void vscode.window.showWarningMessage("OpenCode: no hay editor activo.");
@@ -51,10 +51,10 @@ export async function sendSelection(term: OpenCodeTerminal): Promise<void> {
   }
 
   const ref = sanitizeForComposer(buildFileRef(editor));
-  if (!term.instance) {
-    await term.launch();
+  if (!pty.isRunning) {
+    pty.launch();
   }
-  if (!term.sendToComposer(ref)) {
+  if (!pty.sendToComposer(ref)) {
     void vscode.window.showWarningMessage("OpenCode: la terminal no está disponible.");
     return;
   }

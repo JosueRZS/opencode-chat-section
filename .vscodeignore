@@ -1,12 +1,32 @@
 .vscode/**
 src/**
-node_modules/**
-dist/**/*.map
 tsconfig.json
+tsconfig.webview.json
 PROBLEMAS.md
 plan.md
 openspec/**
 .opencode/**
 .gitignore
-**/*.ts
-!dist/**
+
+# Sourcemaps de los bundles (los .js/.css SÍ van).
+dist/**/*.map
+
+# node-pty es EXTERNO en esbuild: su binario nativo se resuelve por ruta relativa
+# (prebuilds/<platform>-<arch>), así que el paquete COMPLETO debe viajar en el VSIX.
+node_modules/@types/**
+node_modules/@xterm/**
+node_modules/@vscode/**
+node_modules/esbuild/**
+node_modules/typescript/**
+node_modules/undici-types/**
+node_modules/node-addon-api/**
+
+# Limpieza dentro de node-pty (no afecta a la carga del nativo).
+node_modules/node-pty/src/**
+node_modules/node-pty/deps/**
+node_modules/node-pty/**/*.map
+node_modules/node-pty/**/*.pdb
+node_modules/node-pty/**/*.test.js
+node_modules/node-pty/**/*.ts
+node_modules/node-pty/**/*.gyp
+node_modules/node-pty/**/*.gypi

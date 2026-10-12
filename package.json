@@ -6,7 +6,7 @@
   "publisher": "JosueRZS",
   "license": "MIT",
   "engines": {
-    "vscode": "^1.95.0"
+    "vscode": "^1.140.0"
   },
   "categories": [
     "Other"
@@ -30,16 +30,11 @@
           "id": "opencodeChat.status",
           "name": "OpenCode",
           "icon": "$(comment-discussion)",
+          "type": "webview",
           "contextualTitle": "OpenCode"
         }
       ]
     },
-    "viewsWelcome": [
-      {
-        "view": "opencodeChat.status",
-        "contents": "OpenCode no está en ejecución.\n[Launch OpenCode Chat](command:opencodeChat.launch)"
-      }
-    ],
     "commands": [
       {
         "command": "opencodeChat.launch",
@@ -141,15 +136,23 @@
     }
   },
   "scripts": {
-    "build": "tsc --noEmit && esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
-    "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
-    "check-types": "tsc --noEmit",
+    "build": "npm run check-types && npm run build:ext && npm run build:web",
+    "build:ext": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:node-pty --format=cjs --platform=node --sourcemap",
+    "build:web": "esbuild src/webview/client.ts --bundle --outfile=dist/webview.js --format=iife --platform=browser --minify --sourcemap",
+    "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:node-pty --format=cjs --platform=node --sourcemap --watch",
+    "check-types": "tsc --noEmit && tsc -p tsconfig.webview.json",
     "vscode:prepublish": "npm run build"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
     "@types/vscode": "^1.140.0",
+    "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "node-pty": "^1.1.0"
   }
 }
