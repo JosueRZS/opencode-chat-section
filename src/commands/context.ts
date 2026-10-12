@@ -46,7 +46,7 @@ export function sanitizeForComposer(text: string): string {
 export async function sendSelection(pty: OpenCodePty): Promise<boolean> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
-    void vscode.window.showWarningMessage("OpenCode: no hay editor activo.");
+    void vscode.window.showWarningMessage(vscode.l10n.t("OpenCode: there is no active editor."));
     return false;
   }
 
@@ -55,7 +55,7 @@ export async function sendSelection(pty: OpenCodePty): Promise<boolean> {
     pty.launch();
   }
   if (!pty.sendToComposer(ref)) {
-    void vscode.window.showWarningMessage("OpenCode: la terminal no está disponible.");
+    void vscode.window.showWarningMessage(vscode.l10n.t("OpenCode: the terminal is not available."));
     return false;
   }
   // T7: se envía SIN Enter ⇒ el usuario revisa el compositor y lo envía a mano.

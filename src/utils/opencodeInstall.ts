@@ -122,7 +122,9 @@ export function installOpencode(
     child.stderr?.on("data", pump);
     child.on("error", e => finish(false, e.message));
     // Si el usuario cancela la ventana o VS Code se va, no dejar huérfanos.
-    child.on("close", code => finish(code === 0, `código de salida ${code}`));
+    child.on("close", code =>
+    finish(code === 0, code === 0 ? "" : vscode.l10n.t("exit code {0}", code ?? "?")),
+  );
   });
 }
 
@@ -139,7 +141,7 @@ export async function ensureOpencodeAvailable(
   const autoPrompt = cfg.get<boolean>("autoPromptInstall", true);
   const method = cfg.get<string>("installMethod", "auto");
 
-  onPhase("checking", "comprobando si OpenCode está disponible…");
+  onPhase("checking", vscode.l10n.t("checking whether OpenCode is available…"));
   const probe = await probeOpencode();
   const probeLine = `[install] probe found=${probe.found} :: ${probe.detail}`;
   output.appendLine(`${stamp()} ${probeLine}`);
@@ -157,14 +159,15 @@ export async function ensureOpencodeAvailable(
   }
 
   // Paso 2 — pregunta. Esc o cierre = "No".
+  const installLabel = vscode.l10n.t("Yes, install");
   const pick = await vscode.window.showWarningMessage(
-    "OpenCode no se ha encontrado en tu PATH. ¿Instalarlo ahora?",
+    vscode.l10n.t("OpenCode was not found on your PATH. Install it now?"),
     { modal: true },
-    "Sí, instalar",
+    installLabel,
     "No",
   );
   fileLog?.write(`[install] respuesta del usuario: ${pick ?? "(descartado)"}`);
-  if (pick !== "Sí, instalar") {
+  if (pick !== installLabel) {
     onPhase("idle", "");
     return;
   }
@@ -174,7 +177,7 @@ export async function ensureOpencodeAvailable(
   const result = await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
-      title: "Instalando OpenCode…",
+      title: vscode.l10n.t("Installing OpenCode…"),
       cancellable: false,
     },
     async progress =>
@@ -195,13 +198,17 @@ export async function ensureOpencodeAvailable(
   fileLog?.write(`[install] re-comprobación found=${after.found}`);
 
   if (!after.found || !result.ok) {
+    const viewOutputLabel = vscode.l10n.t("View output");
     void vscode.window
       .showErrorMessage(
-        `No se pudo instalar OpenCode (${result.detail}). Revisa View → Output → "OpenCode Chat".`,
-        "Ver salida",
+        vscode.l10n.t(
+          'OpenCode could not be installed ({0}). See View → Output → "OpenCode Chat".',
+          result.detail,
+        ),
+        viewOutputLabel,
       )
       .then(choice => {
-        if (choice === "Ver salida") {
+        if (choice === viewOutputLabel) {
           output.show(true);
         }
       });

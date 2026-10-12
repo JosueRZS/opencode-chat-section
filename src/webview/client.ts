@@ -123,7 +123,11 @@ term.loadAddon(fit);
 try {
   term.open(termEl);
 } catch (e) {
-  setStatus("error", `xterm.js no pudo iniciarse: ${e instanceof Error ? e.message : String(e)}`);
+  setStatus(
+    "error",
+    `xterm.js failed to start: ${e instanceof Error ? e.message : String(e)}`,
+    "",
+  );
 }
 
 // --- Renderizador WebGL (P-029) ---
@@ -241,17 +245,13 @@ function setState(running: boolean): void {
  *    durante minutos mientras npm instala.
  *  - `starting` solo lleva spinner, sin texto, para no meter chrome (P-028).
  */
-const PHASE_LABEL: Record<string, string> = {
-  error: "Error:",
-  checking: "Comprobando OpenCode…",
-  installing: "Instalando OpenCode…",
-};
+// Las etiquetas llegan YA traducidas del host: el webview no tiene acceso a
+// `vscode.l10n` (es contexto de navegador), así que no puede resolverlas aquí.
 
 /** Fases donde la sección está en silencio: solo terminal (P-028). */
 const SILENT_PHASES = new Set(["idle", "starting", "running", "exited"]);
 
-function setStatus(phase: string, detail: string): void {
-  const label = PHASE_LABEL[phase] ?? "";
+function setStatus(phase: string, detail: string, label: string): void {
   statusText.textContent = detail ? `${label} ${detail}` : label;
   statusEl.dataset.phase = phase;
   statusEl.classList.toggle("hidden", SILENT_PHASES.has(phase));
@@ -291,6 +291,7 @@ window.addEventListener("message", (e: MessageEvent) => {
     running?: boolean;
     phase?: string;
     detail?: string;
+    label?: string;
     visible?: boolean;
     style?: TerminalStyle;
   };
@@ -304,7 +305,7 @@ window.addEventListener("message", (e: MessageEvent) => {
       setState(msg.running === true);
       break;
     case "status":
-      setStatus(msg.phase ?? "idle", msg.detail ?? "");
+      setStatus(msg.phase ?? "idle", msg.detail ?? "", msg.label ?? "");
       break;
     case "launchButton":
       setLaunchPanel(msg.visible === true);

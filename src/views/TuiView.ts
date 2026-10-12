@@ -20,9 +20,29 @@ type InMsg =
 type OutMsg =
   | { type: "data"; data: string }
   | { type: "state"; running: boolean }
-  | { type: "status"; phase: string; detail: string }
+  | { type: "status"; phase: string; detail: string; label: string }
   | { type: "config"; style: TerminalStyle }
   | { type: "launchButton"; visible: boolean };
+
+/**
+ * Etiqueta de cada fase, ya en el idioma del editor.
+ *
+ * El webview es contexto de navegador: ahí `vscode.l10n` NO existe. Por eso la
+ * traducción se resuelve aquí, en el host, y viaja resuelta dentro del mensaje
+ * `status`. Es lo mismo que hace el workbench con sus propios webviews.
+ */
+function phaseLabel(phase: string): string {
+  switch (phase) {
+    case "error":
+      return vscode.l10n.t("Error:");
+    case "checking":
+      return vscode.l10n.t("Checking OpenCode…");
+    case "installing":
+      return vscode.l10n.t("Installing OpenCode…");
+    default:
+      return "";
+  }
+}
 
 /**
  * §4 (D7) — La sección "OpenCode" DENTRO del contenedor de Chat, pero ahora
@@ -44,7 +64,11 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   /** P-025: cuántas veces se ha resuelto la vista (recreación tras moveViews). */
   private resolveCount = 0;
   /** P-025: último estado de la PTY; se reenvía al llegar el `ready` del webview. */
-  private lastStatus: { phase: string; detail: string } = { phase: "idle", detail: "" };
+  private lastStatus: { phase: string; detail: string; label: string } = {
+    phase: "idle",
+    detail: "",
+    label: "",
+  };
   /** P-033: estado del botón Launch de la sección. */
   private launchButtonVisible = false;
   private readonly subs: vscode.Disposable[] = [];
@@ -76,9 +100,14 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     // P-025: fase real (idle/starting/running/exited/error) → panel + loader.
     this.subs.push(
       pty.onDidChangeStatus(s => {
-        this.lastStatus = s;
+        this.lastStatus = { ...s, label: phaseLabel(s.phase) };
         this.trace(`[status] ${s.phase} :: ${s.detail}`);
-        this.post({ type: "status", phase: s.phase, detail: s.detail });
+        this.post({
+          type: "status",
+          phase: s.phase,
+          detail: s.detail,
+          label: this.lastStatus.label,
+        });
         // P-033: al terminar la sesión, la sección vuelve al botón Launch.
         this.setLaunchButton(s.phase === "exited" || s.phase === "error");
         // Como en el resto de extensiones: si algo FALLA, la pestaña Salida se
@@ -200,6 +229,7 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
               type: "status",
               phase: this.lastStatus.phase,
               detail: this.lastStatus.detail,
+              label: this.lastStatus.label,
             });
             // P-033: el botón Launch es estado persistido en la extensión; si el
             // webview se recrea, hay que volver a decirle si debe estar a la vista.
@@ -376,13 +406,13 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   <div id="status" class="status hidden">
     <span id="spinner" class="spinner hidden"></span>
     <span id="status-text" class="status-text"></span>
-    <button id="output-btn" class="link-btn" title="Abrir View → Output → OpenCode Chat">salida</button>
+    <button id="output-btn" class="link-btn" title="${vscode.l10n.t("Open View → Output → OpenCode Chat")}">${vscode.l10n.t("output")}</button>
   </div>
   <!-- P-033: la sección vuelve al Launch tras cada salida visible de la sesión.
        Sin texto explicativo: si OpenCode no está instalado, la guardia de
        instalación (P-031) ya habla por sí sola cuando se pulsa. -->
   <div id="launch-panel" class="launch-panel hidden">
-    <button id="launch-btn" class="launch-btn">Launch OpenCode</button>
+    <button id="launch-btn" class="launch-btn">${vscode.l10n.t("Launch OpenCode")}</button>
   </div>
   <div id="terminal" class="terminal"></div>
   <script nonce="${nonce}" src="${scriptUri}"></script>

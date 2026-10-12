@@ -96,11 +96,11 @@ export function activate(context: vscode.ExtensionContext): void {
       if (where !== "ok") {
         if (where === "chat-not-loaded") {
           void vscode.window.showWarningMessage(
-            "OpenCode: Chat aún no ha cargado; inténtalo de nuevo en unos segundos.",
+            vscode.l10n.t("OpenCode: Chat has not loaded yet; try again in a few seconds."),
           );
         } else {
           void vscode.window.showErrorMessage(
-            'OpenCode: no se pudo mover la sección. Revisa View → Output → "OpenCode Chat".',
+            vscode.l10n.t('OpenCode: the section could not be moved. See View → Output → "OpenCode Chat".'),
           );
         }
         return;
@@ -113,14 +113,16 @@ export function activate(context: vscode.ExtensionContext): void {
       const order = await restoreViewOrder(output, context.globalState, fileLog);
       if (order === "no-focus") {
         void vscode.window.showErrorMessage(
-          'OpenCode: la sección está en el contenedor pero no se pudo reordenar. Revisa View → Output → "OpenCode Chat".',
+          vscode.l10n.t(
+            'OpenCode: the section is in the container but could not be reordered. See View → Output → "OpenCode Chat".',
+          ),
         );
         return;
       }
 
       // Presente, no pasado: si ya estaba debajo no se ve ningún cambio, y este
       // aviso es lo único que confirma que los dos mandatos corrieron.
-      void vscode.window.showInformationMessage("OpenCode: la sección está debajo de Chat.");
+      void vscode.window.showInformationMessage(vscode.l10n.t("OpenCode: the section is below Chat."));
     }),
   );
 

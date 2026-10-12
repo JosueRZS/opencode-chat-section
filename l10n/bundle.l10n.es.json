@@ -1,0 +1,20 @@
+{
+  "OpenCode: Chat has not loaded yet; try again in a few seconds.": "OpenCode: Chat aún no ha cargado; inténtalo de nuevo en unos segundos.",
+  "OpenCode: the section could not be moved. See View → Output → \"OpenCode Chat\".": "OpenCode: no se pudo mover la sección. Revisa View → Output → \"OpenCode Chat\".",
+  "OpenCode: the section is in the container but could not be reordered. See View → Output → \"OpenCode Chat\".": "OpenCode: la sección está en el contenedor pero no se pudo reordenar. Revisa View → Output → \"OpenCode Chat\".",
+  "OpenCode: the section is below Chat.": "OpenCode: la sección está debajo de Chat.",
+  "OpenCode: there is no active editor.": "OpenCode: no hay editor activo.",
+  "OpenCode: the terminal is not available.": "OpenCode: la terminal no está disponible.",
+  "checking whether OpenCode is available…": "comprobando si OpenCode está disponible…",
+  "OpenCode was not found on your PATH. Install it now?": "OpenCode no se ha encontrado en tu PATH. ¿Instalarlo ahora?",
+  "Yes, install": "Sí, instalar",
+  "Installing OpenCode…": "Instalando OpenCode…",
+  "OpenCode could not be installed ({0}). See View → Output → \"OpenCode Chat\".": "No se pudo instalar OpenCode ({0}). Revisa View → Output → \"OpenCode Chat\".",
+  "View output": "Ver salida",
+  "Error:": "Error:",
+  "Checking OpenCode…": "Comprobando OpenCode…",
+  "Launch OpenCode": "Launch OpenCode",
+  "Open View → Output → OpenCode Chat": "Abrir View → Output → OpenCode Chat",
+  "output": "salida",
+  "exit code {0}": "código de salida {0}"
+}
