@@ -17,10 +17,14 @@ coverage/
 *.vsixmanifest
 
 # ============================================================
-# OpenCode
+# OpenCode — configuración y plantillas del agente, no del proyecto
 # ============================================================
-.opencode/log/
-.opencode/cache/
+.opencode/
+
+# ============================================================
+# OpenSpec — flujo de trabajo de especificación, no del proyecto
+# ============================================================
+openspec/
 
 # ============================================================
 # Sistema / editores
