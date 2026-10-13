@@ -44,6 +44,15 @@
     "onStartupFinished"
   ],
   "contributes": {
+    "icons": {
+      "opencode": {
+        "description": "OpenCode logo",
+        "default": {
+          "fontPath": "./resources/opencode-icons.woff",
+          "fontCharacter": "\uE001"
+        }
+      }
+    },
     "views": {
       "explorer": [
         {
@@ -84,6 +93,20 @@
       {
         "command": "opencodeChat.restorePosition",
         "title": "%commands.restorePosition.title%"
+      },
+      {
+        "command": "opencodeChat.usage.setApiKey",
+        "title": "%commands.usageSetApiKey.title%",
+        "icon": "$(key)"
+      },
+      {
+        "command": "opencodeChat.usage.clearApiKey",
+        "title": "%commands.usageClearApiKey.title%"
+      },
+      {
+        "command": "opencodeChat.usage.refresh",
+        "title": "%commands.usageRefresh.title%",
+        "icon": "$(refresh)"
       }
     ],
     "keybindings": [
@@ -186,6 +209,17 @@
             "script"
           ],
           "description": "%config.installMethod.description%"
+        },
+        "opencodeChat.usage.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.usageEnabled.description%"
+        },
+        "opencodeChat.usage.intervalMinutes": {
+          "type": "number",
+          "default": 15,
+          "minimum": 5,
+          "description": "%config.usageInterval.description%"
         }
       }
     },
@@ -209,6 +243,7 @@
     "build:ext": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:node-pty --format=cjs --platform=node --sourcemap",
     "build:ptyhost": "esbuild src/terminal/ptyHost.ts --bundle --outfile=dist/pty-host.cjs --external:vscode --external:node-pty --format=cjs --platform=node",
     "build:web": "esbuild src/webview/client.ts --bundle --outfile=dist/webview.js --format=iife --platform=browser --minify --sourcemap",
+    "build:icon": "node scripts/build-icon-font.mjs",
     "watch": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:node-pty --format=cjs --platform=node --sourcemap --watch",
     "check-types": "tsc --noEmit && tsc -p tsconfig.webview.json",
     "build:test": "tsc -p tsconfig.test.json",
@@ -220,6 +255,8 @@
     "@types/vscode": "^1.140.0",
     "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.28.2",
+    "opentype.js": "^2.0.0",
+    "ttf2woff": "^3.0.0",
     "typescript": "^7.0.2"
   },
   "dependencies": {

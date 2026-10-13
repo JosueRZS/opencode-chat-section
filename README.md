@@ -21,22 +21,29 @@ to describe compatibility.
 OpenCode functionality.** It is, in short, *a way of looking at the terminal* —
 nothing else.
 
-Everything the extension does is:
+Everything the **terminal** does is:
 
 1. open a pseudo-terminal (PTY),
 2. run the `opencode` binary in it,
 3. paint the resulting screen with xterm.js, using your own VS Code terminal
    settings (font, size, colours).
 
-That is the complete list. There is no fourth step.
+That is the complete list. There is no fourth step, and none of it touches the
+network.
+
+On top of that — and **entirely separate** — there is an optional **model usage
+indicator** in the status bar. It is the only part of this extension that makes
+a network request; it talks only to `opencode.ai`; and it does nothing at all,
+not even appearing on screen, until you save an API key for it. The terminal
+above never goes near it. See [Model usage indicator](#model-usage-indicator).
 
 ### What this extension explicitly does **not** do
 
 | It does not… | Because… |
 | --- | --- |
 | Reimplement or patch any OpenCode feature | All functionality belongs to the CLI |
-| Call any OpenCode or third-party HTTP API | Zero network requests, zero telemetry |
-| Parse, interpret or filter the TUI output | The bytes are painted as they arrive |
+| Send anything over the network from the terminal | The TUI is a plain PTY: no HTTP, no stdout parsing |
+| Phone home, track you, or collect telemetry | The usage indicator is the only outbound request, and it is off until you configure it |
 | Read your OpenCode configuration | — |
 | Write to `~/.config/opencode/cli.json` | Per-session settings are injected as an environment variable **into this extension's own child process only** |
 | Ship, bundle or download the `opencode` binary | You install it yourself (or let the helper do it) |
@@ -95,6 +102,9 @@ code --install-extension .\opencode-vscode-chat-0.0.1.vsix
 | `OpenCode: Mostrar/ocultar` | `Ctrl+Alt+K` | Toggles Chat + OpenCode together |
 | `OpenCode: Ver canal de Salida` | — | Shows the Output channel |
 | `OpenCode: Reestablecer posición del chat` | — | Puts the section back below Chat |
+| `OpenCode: Establecer la clave de API de uso` | — | Prompts for the API key used by the usage indicator |
+| `OpenCode: Actualizar el uso` | — | Refreshes the usage indicator now |
+| `OpenCode: Borrar la clave de API de uso` | — | Forgets the key and removes the indicator |
 
 Keybindings are deliberately chosen to avoid colliding with the official
 OpenCode extension. **Both extensions can be installed side by side.**
@@ -113,10 +123,46 @@ OpenCode extension. **Both extensions can be installed side by side.**
 | `opencodeChat.autoPromptInstall` | `true` | Offer to install the CLI when it is missing |
 | `opencodeChat.installMethod` | `auto` | `npm` or the official POSIX script |
 | `opencodeChat.chainExit` | `true` | Close the session cleanly when OpenCode exits |
+| `opencodeChat.usage.enabled` | `true` | Show the model usage indicator — inert until a key is saved |
+| `opencodeChat.usage.intervalMinutes` | `15` | Minutes between usage refreshes (minimum 5) |
 
 `tuiTabs` is worth a note: it is applied through an environment variable handed
 to **this extension's own child process**, so your global
 `~/.config/opencode/cli.json` is never read, modified or rewritten.
+
+## Model usage indicator
+
+An optional readout in the status bar, at the bottom right, next to Copilot's:
+
+```
+$(opencode) 42% · 38% · 61%
+             ▲      ▲      ▲
+        5 h rolling  weekly  monthly
+```
+
+Hovering it shows the full breakdown — percentage, status and when each window
+resets. Clicking it refreshes. If any window is rate-limited the item takes the
+warning background.
+
+**It is off until you turn it on.** There is no key, no request, and no item on
+screen by default. To enable it, run
+`OpenCode: Establecer la clave de API de uso` and paste an API key from
+[opencode.ai](https://opencode.ai). The key is stored in the VS Code secret
+store — not in `settings.json`, not on disk in plain text.
+
+What it is and is not:
+
+- It calls exactly one endpoint, `https://opencode.ai/zen/go/v1/usage`, with a
+  15-second timeout. Nothing else in this extension makes a request.
+- It reports what OpenCode already knows about your own account. It does not
+  read your code, your prompts or your files, and it cannot.
+- The OpenCode logo in the indicator is OpenCode's own brand asset, used here
+  only to identify whose quota is being shown. See the disclaimer above: this
+  extension is not affiliated with OpenCode.
+- Turning `opencodeChat.usage.enabled` off removes the item and stops the timer.
+  Deleting the key with `OpenCode: Borrar la clave de API de uso` does the same.
+
+The TUI itself does not participate in any of this. It remains a plain PTY.
 
 ## Diagnostics
 
@@ -147,9 +193,20 @@ extension host ── spawns ──► dist/pty-host.cjs   (ELECTRON_RUN_AS_NODE
 
 - **`node-pty` never runs in the extension host.** It lives in a dedicated child
   process, so a blocked ConPTY cannot freeze VS Code.
-- **No HTTP. No stdout parsing.** The bytes the CLI writes are the bytes xterm
-  paints, and the keys you press are the bytes the PTY receives.
+- **No HTTP in the terminal. No stdout parsing.** The bytes the CLI writes are
+  the bytes xterm paints, and the keys you press are the bytes the PTY receives.
+  The one outbound request this extension can make — the usage indicator — lives
+  in `src/usage/`, has its own key, its own timeout and its own setting, and
+  never enters this path.
 - **Single ephemeral instance.** One PTY, one TUI, one section.
+
+The usage indicator's own path:
+
+```
+UsageStatus ── fetch ──► https://opencode.ai/zen/go/v1/usage
+     ▲                        │ Authorization: Bearer <key from SecretStorage>
+     └── status bar ◄─────────┘  aborts after 15 s
+```
 
 ## Tests
 
@@ -159,13 +216,18 @@ npm test
 
 Unit tests over the logic that can be checked without a running editor: shell
 resolution, composer sanitisation, terminal style defaults, the diagnostic file
-log, and the manifest itself. They compile `src/` with `tsc` and run on Node's
-own test runner — no extra dependencies.
+log, the usage API contract, and the manifest itself. They compile `src/` with
+`tsc` and run on Node's own test runner — no extra dependencies.
 
 `vscode` does not exist outside the extension host, so `tests/register.ts`
 redirects `require("vscode")` to a stub (`tests/support/vscode.ts`) that returns
 canned configuration. That is what lets the real production code run under test
 instead of a re-implementation of it.
+
+`src/usage/usageContract.ts` is the exception that proves the rule: it imports
+`vscode` not at all, so `tests/usage.test.ts` loads it **without** the stub.
+That absence is deliberate — if someone adds an API dependency to the contract,
+that test stops compiling instead of quietly becoming dependent on the stub.
 
 What is **not** covered here, on purpose: placing the view inside the Chat
 container and the PTY lifecycle. Both only behave against a real VS Code, and
@@ -181,6 +243,26 @@ Regressions pinned by these tests:
 | `vscode.l10n` → *cada mensaje del fuente tiene traducción* | A missing key does not fail the build; it silently falls back to English. |
 | `FileLog` → *lo que se escribe llega íntegro a disco* | The Output channel is asynchronous; the file is the only record that survives a hang. |
 | `manifest` → *no hay eventos onView redundantes* | VS Code generates `onView:` from `contributes.views`; declaring them by hand duplicates activation. |
+| `describeReset` → *cruza de horas a días en 24* | Rounding to the nearest put a reset 23 h 59' away at "1 d": it crossed the `< 24` boundary and reported the wrong window. |
+| `parseUsage` → *rechaza el payload si falta una ventana* | Rendering a guessed 0% would tell the user they had full quota when the reading had simply failed. |
+
+### Regenerating the status bar icon
+
+The OpenCode logo in the status bar is a **font glyph**, not an SVG. VS Code's
+`StatusBarItem.text` understands `$(icon-id)` but no arbitrary path, so the only
+official way in is `contributes.icons`, and that contribution point wants a
+font — extension `.woff` or `.ttf`, with the glyph at a private-use codepoint.
+
+`resources/opencode-icons.woff` is therefore generated, never hand-edited:
+
+```bash
+npm run build:icon
+```
+
+The script lifts the square ring out of OpenCode's own favicon and writes the
+WOFF. The two libraries it needs (`opentype.js`, `ttf2woff`) are
+devDependencies, used only when the icon changes, and both are excluded from
+the VSIX — nobody installing the extension downloads them.
 
 ## Troubleshooting
 

@@ -10,6 +10,7 @@ import {
 } from "./utils/placement";
 import { FileLog } from "./utils/filelog";
 import { stamp } from "./utils/log";
+import { UsageStatus } from "./usage/usageStatus";
 
 // Attribution (§0.4): patrón de terminal + sendText(x, false) tomado de la
 // extensión oficial de OpenCode (`anomalyco/opencode/sdks/vscode`, MIT).
@@ -32,6 +33,12 @@ export function activate(context: vscode.ExtensionContext): void {
   pty = new OpenCodePty(output, fileLog);
   view = new TuiViewProvider(context, pty, output, fileLog);
   context.subscriptions.push(output, pty, view);
+
+  // --- Indicador de cuota de modelos (barra de estado) ---
+  // Aparte del TUI: solo esta clase habla con la red, y no lo hace en absoluto
+  // mientras no haya clave guardada. Ver `UsageStatus`.
+  const usage = new UsageStatus(context.secrets, output);
+  context.subscriptions.push(usage);
 
   // --- Sección "OpenCode" dentro del contenedor de Chat (D7 rev.4/rev.5) ---
   // La vista se declara en Explorer (sin warnings, P-019) y se mueve en caliente a
@@ -124,6 +131,10 @@ export function activate(context: vscode.ExtensionContext): void {
       // aviso es lo único que confirma que los dos mandatos corrieron.
       void vscode.window.showInformationMessage(vscode.l10n.t("OpenCode: the section is below Chat."));
     }),
+    // --- Cuota de modelos: clave, refresco y borrado ---
+    vscode.commands.registerCommand("opencodeChat.usage.setApiKey", () => usage.setApiKey()),
+    vscode.commands.registerCommand("opencodeChat.usage.refresh", () => usage.refresh()),
+    vscode.commands.registerCommand("opencodeChat.usage.clearApiKey", () => usage.clearApiKey()),
   );
 
   // --- Ciclo de vida (§7.3) — la señal es `onExit` de la PTY ---

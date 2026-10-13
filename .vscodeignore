@@ -11,6 +11,9 @@ openspec/**
 .opencode/**
 .gitignore
 
+# Generador de la fuente del icono: se ejecuta a mano, no en tiempo de empaquetado.
+scripts/**
+
 # Sourcemaps de los bundles (los .js/.css SÍ van).
 dist/**/*.map
 
@@ -23,6 +26,8 @@ node_modules/esbuild/**
 node_modules/typescript/**
 node_modules/undici-types/**
 node_modules/node-addon-api/**
+node_modules/opentype.js/**
+node_modules/ttf2woff/**
 
 # Limpieza dentro de node-pty (no afecta a la carga del nativo).
 node_modules/node-pty/src/**

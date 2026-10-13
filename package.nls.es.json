@@ -6,6 +6,9 @@
   "commands.showOutput.title": "OpenCode: Mostrar la salida",
   "commands.toggle.title": "OpenCode: Alternar Chat + OpenCode",
   "commands.restorePosition.title": "OpenCode: Reestablecer posición del chat",
+  "commands.usageSetApiKey.title": "OpenCode: Establecer la clave de API de uso",
+  "commands.usageClearApiKey.title": "OpenCode: Borrar la clave de API de uso",
+  "commands.usageRefresh.title": "OpenCode: Actualizar el uso",
 
   "config.title": "OpenCode Chat",
 
@@ -19,5 +22,7 @@
   "config.useConptyDll.description": "Usar la conpty.dll incluida con node-pty en vez de la del sistema. Es el camino que usa la propia terminal de VS Code en Windows, y evita los cuelgues de ConPTY del sistema.",
   "config.ptySpawnTimeout.description": "Milisegundos que se espera a que node-pty confirme el arranque antes de dar el proceso PTY por bloqueado.",
   "config.autoPromptInstall.description": "Si `opencode` no aparece en el PATH, ofrecer instalarlo. La sección se abre igualmente: es una ayuda, no una puerta.",
-  "config.installMethod.description": "Cómo instalar OpenCode. `npm` ejecuta `npm install -g @opencode/cli` (el paquete vigente de la v2; `opencode-ai` está congelado en la v1). `script` ejecuta `curl -fsSL https://opencode.ai/install | bash` (solo POSIX; en Windows se recurre a npm). `auto` equivale a npm."
+  "config.installMethod.description": "Cómo instalar OpenCode. `npm` ejecuta `npm install -g @opencode/cli` (el paquete vigente de la v2; `opencode-ai` está congelado en la v1). `script` ejecuta `curl -fsSL https://opencode.ai/install | bash` (solo POSIX; en Windows se recurre a npm). `auto` equivale a npm.",
+  "config.usageEnabled.description": "Mostrar el indicador de uso de modelos en la barra de estado. No hace ninguna petición hasta que guardes una clave de API con OpenCode: Establecer la clave de API de uso, y cuando la hace solo habla con opencode.ai. La TUI de OpenCode sigue siendo una PTY pura y no pasa por esta ruta.",
+  "config.usageInterval.description": "Minutos entre actualizaciones del uso. Los valores por debajo de 5 se suben a 5."
 }
