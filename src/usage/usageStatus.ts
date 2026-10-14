@@ -348,7 +348,7 @@ export class UsageStatus implements vscode.Disposable {
 
   private paint(snapshot: UsageSnapshot, warning: boolean): void {
     const percents = WINDOW_ORDER.map(key => `${snapshot[key].percent}%`).join(" · ");
-    this.item.text = `$(opencode) ${percents}`;
+    this.item.text = `$(opencode-logo) ${percents}`;
     this.item.backgroundColor = warning ? new vscode.ThemeColor("statusBarItem.warningBackground") : undefined;
   }
 

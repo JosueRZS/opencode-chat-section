@@ -117,7 +117,7 @@ export function activate(context: vscode.ExtensionContext): void {
       // no-op si la vista ya está en el contenedor, así que una sección
       // arrastrada por encima de Chat seguía arriba mientras el aviso afirmaba
       // lo contrario. Aquí se reescribe `state.order` de verdad.
-      const order = await restoreViewOrder(output, context.globalState, fileLog);
+      const order = await restoreViewOrder(output, fileLog);
       if (order === "no-focus") {
         void vscode.window.showErrorMessage(
           vscode.l10n.t(
@@ -128,8 +128,10 @@ export function activate(context: vscode.ExtensionContext): void {
       }
 
       // Presente, no pasado: si ya estaba debajo no se ve ningún cambio, y este
-      // aviso es lo único que confirma que los dos mandatos corrieron.
-      void vscode.window.showInformationMessage(vscode.l10n.t("OpenCode: the section is below Chat."));
+      // aviso es lo único que confirma que los dos mandatos corrieron. Se avisa
+      // además de que el ORDEN VISIBLE solo se aplica al reconstruirse el
+      // contenedor: reescribir el modelo sí es inmediato, pintarlo no (P-043).
+      void vscode.window.showInformationMessage(vscode.l10n.t("OpenCode: position restored. If you had dragged the section, reload the window to see the new order."));
     }),
     // --- Cuota de modelos: respaldo manual, refresco y borrado ---
     vscode.commands.registerCommand("opencodeChat.usage.setApiKey", () => usage.setApiKey()),

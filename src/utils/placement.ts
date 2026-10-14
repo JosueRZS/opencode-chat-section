@@ -250,208 +250,34 @@ async function showStatusView(
 }
 
 /**
- * Descubre el id de la vista de Chat dentro de `workbench.panel.chat`.
+ * P-043 — Por qué aquí ya NO se reconstruye ningún pane.
  *
- * El contenedor lo declara el propio workbench con una plantilla
- * (`Ba = \`workbench.panel.chat.view.${_Ue}\``), y el mandato de foco que de él
- * se registra es exactamente `<vista>.focus`. Como `vscode.commands.getCommands`
- * lista todos los mandatos registrados, basta con filtrar por ese patrón:
- * descubrimos el id sin fijarlo a mano y sin depender de que la sufija (`copilot`)
- * se mantenga entre versiones.
+ * El diseño anterior (P-040) alternaba la visibilidad de la vista de Chat dos
+ * veces para forzar que `ViewPaneContainer` reconstruyera su DOM en el orden del
+ * modelo. Funcionaba — y era exactamente lo que vaciaba la conversación de
+ * Copilot Chat: `openView` sobre una vista AUSENTE la vuelve a añadir, y añadir
+ * una vista de webview significa destruir y recrear su webview, con lo que todo
+ * lo que solo vivía en memoria se pierde.
+ *
+ * No era un detalle de implementación, era insalvable. `ViewPaneContainer`
+ * aplica los eventos del modelo como ÍNDICES del array de panes, así que una vez
+ * que `moveViewDown` ha reordenado el modelo, alternar la visibilidad de la
+ * nuestra retira el pane que ocupa ese índice EN PANTALLA — que ya es el de Chat.
+ * Es decir: la llamada a la vista de Chat no reparaba un daño accidental, era el
+ * paso inevitable de la propia secuencia. Y con la API pública no hay forma de
+ * leer el orden del DOM, luego tampoco de saber si los índices cruzados van a
+ * dañar a un tercero.
+ *
+ * La regla que queda es simple y verificable: **esta extensión no emite ningún
+ * mandato sobre una vista que no sea la suya.** `moveViewDown` reescribe
+ * `state.order`, que es estado PERSISTENTE; el orden visible lo recupera el
+ * contenedor al reconstruirse, cosa que ocurre sola (recargar la ventana, u
+ * ocultar y volver a mostrar la barra lateral).
+ *
+ * Lo que se pierde: ver el cambio al instante tras arrastrar. Lo que se gana:
+ * que Copilot Chat deje de perder su conversación. Con la API actual no hay
+ * término medio.
  */
-async function discoverChatViewId(): Promise<string | undefined> {
-  const commands = await vscode.commands.getCommands(true);
-  const pattern = /^(workbench\.panel\.chat\.view\.[^.]+)\.focus$/;
-  for (const id of commands) {
-    const m = pattern.exec(id);
-    if (m) {
-      return m[1];
-    }
-  }
-  // Respaldo por si el patrón deja de valer: solo se usa si el mandato existe.
-  return commands.includes(`${CHAT_VIEW_FALLBACK}.focus`) ? CHAT_VIEW_FALLBACK : undefined;
-}
-
-/** Espera entre operaciones de pane, para que el contenedor aplique el evento. */
-const PANE_SETTLE = 250;
-
-/** Respaldo: id de la vista de Chat dentro de `workbench.panel.chat` en 1.141. */
-const CHAT_VIEW_FALLBACK = "workbench.panel.chat.view.copilot";
-
-/**
- * P-040 — Sincroniza la PANTALLA con el modelo, y de paso repara daños previos.
- *
- * ## Por qué hace falta
- *
- * En el workbench de 1.141 solo hay dos puntos que reordenan y solo uno toca el DOM:
- *
- *   // la del mandato — SOLO modelo + storage
- *   XKe.run (views.moveViewUp/Down/Left/Right): a.move(c.id, u.id)
- *
- *   // la del drag & drop — modelo Y DOM
- *   ViewPaneContainer.movePane(e,t){ …paneItems.splice(n,0,c),
- *                                    paneview.movePane(e,t),
- *                                    viewContainerModel.move(r.id,a.id) }
- *
- * `_onDidMoveVisibleViewDescriptors`, el único evento que emite `move()`, tiene
- * UN SOLO suscriptor en todo el bundle (`registerViewsVisibilityActions`,
- * repinta menús) y los seis llamadores de `movePane` son manejadores de drop.
- * Luego `moveViewDown` deja el modelo reordenado y la pantalla como estaba.
- *
- * ## Por qué es peligroso tocar la visibilidad después
- *
- * `ViewPaneContainer` NO mira el id al aplicar los eventos del modelo: los usa
- * como ÍNDICES del array de panes.
- *
- *   onDidRemoveViewDescriptors(e){ …for(let{index:i}of e)
- *       this.paneItems[i] && t.push(this.paneItems[i].pane) }
- *
- *   onDidAddViewDescriptors(e){ …t.push({pane:l,size:c, index:a, …}) }
- *   addPane(e,t,i,n){ …this.paneItems.splice(n,0,g), paneview.addPane(e,t,n) }
- *
- * Si el orden del modelo y el del DOM difieren, «ocultar la vista X» retira el
- * pane que OCUPA LA POSICIÓN de X en pantalla — no el de X. Fue exactamente el
- * fallo del P-039: el modelo decía `[chat, openCode]` y la pantalla seguía en
- * `[openCode, chat]`, así que ocultar la nuestra (índice 1) se cargó el pane de
- * Chat y el contenedor quedó *merged* con título `CHAT: OPENCODE`.
- *
- * ## Las dos palancas, verificadas en el fuente
- *
- *   toggleVisibility(id)  → model.setVisible(id, !vis) → evento con el índice
- *                           del MODELO. Es la única forma de retirar un pane.
- *
- *   <id>.focus            → ViewPaneContainer.openView:
- *                             let i=this.getView(e); return i||this.toggleViewVisibility(e),
- *                                    i=this.getView(e), i&&(i.setExpanded(!0), t&&i.focus()), i
- *                           **Solo alterna si el pane NO existe.** Con
- *                           `{preserveFocus:true}` no mueve el foco. Esto lo
- *                           convierte en «asegura visible» (idempotente), y su
- *                           gemelo «asegura oculto» cuando el pane falta.
- *
- * ## La secuencia
- *
- *   P. `ensurePanesPresent` (antes del movimiento) — `<chat>.focus` ×2 y
- *      `<nuestra>.focus`: si falta algún pane lo repone (y al hacerlo vacía el
- *      DOM, que es el estado de orden cero). Con todo presente, no-op.
- *   M. `views.moveViewDown` — reescribe `state.order` (ambas visibles).
- *   R1 `<nuestra>.toggleVisibility` — retira la nuestra.
- *   R2 `<chat>.focus` ×2 — si R1 retiró la de Chat, la primera vacía el DOM y
- *      la segunda la repone; si no, ambas son no-op.
- *   R3 `<nuestra>.focus` — la reinserta en `visibleIndex` del modelo ordenado.
- *
- * Al terminar `paneItems` y `visibleViewDescriptors` vuelven a coincidir, así
- * que la siguiente ejecución arranca en caja limpia (y entonces R2/R3 no tocan
- * Chat en absoluto). Los tres estados de partida posibles dan el mismo final:
- *
- *   · correcto            → solo se reconstruye la nuestra; Chat ni se mueve.
- *   · orden invertido     → R1 retira la de Chat (índice 1), R2 vacía y repone,
- *                           R3 reinserta la nuestra al final.
- *   · daño previo (P-039) → P lo repara entero antes de mover nada.
- *
- * Coste: se recrea el `WebviewView`. `TuiView` lo soporta desde P-025
- * (`resolveCount`, descarte de suscripciones viejas, y en `ready` reenvía el
- * replay de la PTY, la fase y el botón Launch): el TUI se repinta sin reiniciar.
- */
-/** `<id>.focus` con `preserveFocus` — llega a `openView(id, !r?.preserveFocus)`. */
-async function ensureViewVisible(
-  viewId: string,
-  output: vscode.OutputChannel,
-  fileLog?: FileLog,
-): Promise<void> {
-  try {
-    await vscode.commands.executeCommand(`${viewId}.focus`, { preserveFocus: true });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    output.appendLine(`${stamp()} [place] ${viewId}.focus no disponible (${msg})`);
-    fileLog?.write(`[place] ${viewId}.focus no disponible: ${msg}`);
-  }
-  await new Promise<void>(r => setTimeout(r, PANE_SETTLE));
-}
-
-async function rebuildPanesOrder(
-  output: vscode.OutputChannel,
-  chatViewId: string | undefined,
-  state: vscode.Memento,
-  fileLog?: FileLog,
-): Promise<void> {
-  const trace = (msg: string): void => {
-    output.appendLine(`${stamp()} ${msg}`);
-    fileLog?.write(msg);
-  };
-  const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
-  const ensureVisible = (viewId: string) => ensureViewVisible(viewId, output, fileLog);
-
-  // R1 — retirar la nuestra. Es el único paso que exige el mandato de
-  // visibilidad; si no existe, no se reconstruye nada (se evita a propósito:
-  // sin R2 no habría forma de devolver el pane de Chat).
-  const TOGGLE = `${STATUS_VIEW_ID}.toggleVisibility`;
-  let hid = false;
-  try {
-    await state.update(REBUILD_IN_FLIGHT_FLAG, true);
-    await vscode.commands.executeCommand(TOGGLE);
-    hid = true;
-    await delay(PANE_SETTLE);
-    trace(`[place] ${TOGGLE} → pane retirado`);
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    trace(`[place] ${TOGGLE} no disponible (${msg}) → pantalla sin actualizar`);
-    if (!hid) {
-      // Nada se ocultó: la marca de "a medias" no debe sobrevivir.
-      await state.update(REBUILD_IN_FLIGHT_FLAG, false);
-    }
-    return;
-  }
-
-  // R2 — si R1 se llevó por delante el pane de Chat (índices cruzados), la
-  // primera llamada vacía el DOM y la segunda lo repone. Si Chat seguía intacto
-  // las dos son no-op.
-  if (chatViewId) {
-    await ensureVisible(chatViewId);
-    await ensureVisible(chatViewId);
-  }
-
-  // R3 — reinsertar la nuestra en `visibleIndex` del modelo ya ordenado.
-  await ensureVisible(STATUS_VIEW_ID);
-
-  // P-042 — solo aquí se retira la marca, y solo si R3 terminó. Si el host
-  // muere entre R1 y R3, la sección queda oculta por nuestra cuenta y la
-  // próxima activación lo detecta por esta misma bandera y la repone.
-  await state.update(REBUILD_IN_FLIGHT_FLAG, false);
-  trace(`[place] panes reconstruidos en el orden del modelo (pantalla = modelo)`);
-}
-
-/**
- * P-040 (previo) — Garantiza que el modelo y la pantalla cuenten con las MISMAS
- * vistas antes de tocar nada.
- *
- * Es la fase que repara el estado que los refrescos del P-039 dejaron
- * inconsistentes (un pane retirado del DOM mientras el modelo seguía creyéndolo
- * visible). La palanca es `openView`, que **solo alterna la visibilidad cuando
- * el pane no existe**:
- *
- *   · pane presente  → no-op, no se mueve nada.
- *   · pane ausente   → alterna, y al hacerlo emite el evento con el índice del
- *                      modelo: si ese índice apunta a otro pane (que es justo el
- *                      síntoma de la inconsistencia) lo retira, vaciando el
- *                      array. La segunda llamada lo vuelve a poner ya limpio.
- *
- * Por eso se llama DOS VECES con la de Chat y UNA con la nuestra: en un estado
- * sano las tres no-op; en uno dañado, vacían el DOM y lo rehacen en el orden
- * del modelo.
- */
-async function ensurePanesPresent(
-  output: vscode.OutputChannel,
-  chatViewId: string | undefined,
-  fileLog?: FileLog,
-): Promise<void> {
-  const ensureVisible = (viewId: string) => ensureViewVisible(viewId, output, fileLog);
-
-  if (chatViewId) {
-    await ensureVisible(chatViewId);
-    await ensureVisible(chatViewId);
-  }
-  await ensureVisible(STATUS_VIEW_ID);
-}
 
 /**
  * P-035 — Empuja la sección al FINAL del contenedor: debajo de Chat.
@@ -499,12 +325,12 @@ async function ensurePanesPresent(
  * que el usuario tiene que leer en View → Output, y antes sus trazas solo
  * llegaban al fichero.
  *
- * P-040 — tras reescribir el modelo hay que reconstruir la pantalla; ver
- * `rebuildPanesOrder`. Es lo que separa "el modelo se movió" de "se ve movida".
+ * P-043 — aquí termina TODO lo que toca el mandato. Lo que se reescribe es
+ * `state.order`, que es estado persistente; la pantalla no se toca en absoluto
+ * (ver `ensurePanesPresent`/`rebuildPanesOrder`, retiradas, y el motivo).
  */
 export async function restoreViewOrder(
   output: vscode.OutputChannel,
-  state: vscode.Memento,
   fileLog?: FileLog,
 ): Promise<OrderResult> {
   const MOVE_DOWN = "views.moveViewDown";
@@ -540,17 +366,11 @@ export async function restoreViewOrder(
 
   let rejects = 0;
   let accepted = 0;
-  const chatViewId = await discoverChatViewId();
-  trace(
-    chatViewId
-      ? `[place] vista de Chat localizada: ${chatViewId}`
-      : `[place] vista de Chat NO localizada → la reconstrucción de pantalla queda limitada a la nuestra`,
-  );
 
-  // P-040 — ANTES de mover nada: `views.moveViewDown` exige que la nuestra sea
-  // visible, y además cualquier evento con índices cruzados retira el pane
-  // equivocado. Este paso deja modelo y pantalla contando las mismas vistas.
-  await ensurePanesPresent(output, chatViewId, fileLog);
+  // P-043 — aquí NO se toca ninguna vista que no sea la nuestra. Ver el
+  // comentario de `restoreViewOrder`: reconstruir panes exige alternar la
+  // visibilidad, y eso sobre la vista de Chat destruye su webview (y con él la
+  // conversación). El orden del modelo se corrige solo con `moveViewDown`.
 
   try {
     for (let step = 0; step < MAX_STEPS && rejects < 2; step++) {
@@ -579,12 +399,6 @@ export async function restoreViewOrder(
         trace(`[place] ${MOVE_DOWN} rechazado (intento ${rejects}): ${msg}`);
       }
     }
-
-    // P-040 — SIEMPRE, y no solo si el mandato fue aceptado: `moveViewDown`
-    // reescribe el modelo y la pantalla no se entera, y la reconstrucción es
-    // además lo que repara el estado que los refrescos anteriores dejaron
-    // inconsistente (índices del modelo aplicados al array de panes).
-    await rebuildPanesOrder(output, chatViewId, state, fileLog);
   } finally {
     // 3. Devolver la clave a su valor por defecto (= `reset()`): al salir, el foco
     //    vuelve al editor, donde `focusedView` es `""`.

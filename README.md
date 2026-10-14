@@ -43,11 +43,12 @@ above never goes near it. See [Model usage indicator](#model-usage-indicator).
 | --- | --- |
 | Reimplement or patch any OpenCode feature | All functionality belongs to the CLI |
 | Send anything over the network from the terminal | The TUI is a plain PTY: no HTTP, no stdout parsing |
-| Phone home, track you, or collect telemetry | The usage indicator is the only outbound request, and it is off until you configure it |
+| Phone home, track you, or collect telemetry | The usage indicator is the only outbound request, and it only ever talks to `opencode.ai` |
 | Read your OpenCode configuration | — |
 | Write to `~/.config/opencode/cli.json` | Per-session settings are injected as an environment variable **into this extension's own child process only** |
 | Ship, bundle or download the `opencode` binary | You install it yourself (or let the helper do it) |
 | Create, move or reuse a VS Code terminal | Your bottom-panel shell is left untouched |
+| Issue a command against any view other than its own | Restoring the section's position rewrites its own saved order and touches nothing else — see below |
 | Collect, store or transmit any data | There is no backend to collect it to |
 
 If you want new OpenCode features, model support, agents, authentication or
@@ -101,7 +102,7 @@ code --install-extension .\opencode-vscode-chat-0.0.1.vsix
 | `OpenCode: Enviar selección` | `Ctrl+Alt+Enter` | Inserts the editor selection into the prompt **without** sending it |
 | `OpenCode: Mostrar/ocultar` | `Ctrl+Alt+K` | Toggles Chat + OpenCode together |
 | `OpenCode: Ver canal de Salida` | — | Shows the Output channel |
-| `OpenCode: Reestablecer posición del chat` | — | Puts the section back below Chat |
+| `OpenCode: Reestablecer posición del chat` | - | Restores the section's saved position below Chat. If it had been dragged, the new order applies after a window reload |
 | `OpenCode: Establecer la clave de API de uso (respaldo)` | — | Stores a fallback key for when the CLI has none — normally unnecessary |
 | `OpenCode: Actualizar el uso` | — | Re-reads the credential and refreshes the indicator |
 | `OpenCode: Borrar la clave de API de uso` | — | Forgets the fallback key |
@@ -266,6 +267,8 @@ Regressions pinned by these tests:
 | `describeReset` → *cruza de horas a días en 24* | Rounding to the nearest put a reset 23 h 59' away at "1 d": it crossed the `< 24` boundary and reported the wrong window. |
 | `parseUsage` → *rechaza el payload si falta una ventana* | Rendering a guessed 0% would tell the user they had full quota when the reading had simply failed. |
 | `buildAuthExportCommand` → *rechaza rutas con comillas dobles* | `cliPath` reaches cmd.exe through the shell; `"` closes the quote and lets a crafted path append a second command. `%` expands even inside quotes. |
+| `manifest` → *cada id de icono cumple el patrón de dos segmentos* | VS Code rejects a single-segment icon id (`opencode`) with a console warning and never registers the glyph — the id must be `component-iconname`. |
+| `manifest` → *el id contribuido se usa realmente en el código* | Declaring an icon and referencing a different one makes the status bar print the literal text instead of the logo. |
 
 ### Regenerating the status bar icon
 

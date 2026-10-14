@@ -45,7 +45,7 @@
   ],
   "contributes": {
     "icons": {
-      "opencode": {
+      "opencode-logo": {
         "description": "OpenCode logo",
         "default": {
           "fontPath": "./resources/opencode-icons.woff",

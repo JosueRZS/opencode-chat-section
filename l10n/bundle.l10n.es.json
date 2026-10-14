@@ -2,7 +2,7 @@
   "OpenCode: Chat has not loaded yet; try again in a few seconds.": "OpenCode: Chat aún no ha cargado; inténtalo de nuevo en unos segundos.",
   "OpenCode: the section could not be moved. See View → Output → \"OpenCode Chat\".": "OpenCode: no se pudo mover la sección. Revisa View → Output → \"OpenCode Chat\".",
   "OpenCode: the section is in the container but could not be reordered. See View → Output → \"OpenCode Chat\".": "OpenCode: la sección está en el contenedor pero no se pudo reordenar. Revisa View → Output → \"OpenCode Chat\".",
-  "OpenCode: the section is below Chat.": "OpenCode: la sección está debajo de Chat.",
+  "OpenCode: position restored. If you had dragged the section, reload the window to see the new order.": "OpenCode: posición restaurada. Si habías arrastrado la sección, recarga la ventana para ver el nuevo orden.",
   "OpenCode: there is no active editor.": "OpenCode: no hay editor activo.",
   "OpenCode: the terminal is not available.": "OpenCode: la terminal no está disponible.",
   "checking whether OpenCode is available…": "comprobando si OpenCode está disponible…",

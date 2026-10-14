@@ -20,6 +20,7 @@ const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"))
     keybindings?: { command: string; key: string }[];
     menus?: Record<string, { command: string }[]>;
     views?: Record<string, { id: string; name: string; type?: string }[]>;
+    icons?: Record<string, { description: string; default: { fontPath: string; fontCharacter: string } }>;
   };
 };
 const nls = JSON.parse(fs.readFileSync(path.join(root, "package.nls.json"), "utf8")) as Record<string, string>;
@@ -154,5 +155,42 @@ describe("manifest: la vista", () => {
   // cadena da "contenedor no existe" y el movimiento en caliente no llega a ocurrir.
   test("el contenedor de Chat sigue siendo workbench.panel.chat", () => {
     assert.equal(CHAT_CONTAINER_ID, "workbench.panel.chat");
+  });
+});
+
+
+
+describe("manifest: icono contribuido", () => {
+  const icons = pkg.contributes.icons ?? {};
+
+  // Patrón exacto del workbench de 1.141, extraído del bundle:
+  //   Q.iconNameSegment = "[A-Za-z0-9]+"
+  //   J5o = `^${Q.iconNameSegment}(-${Q.iconNameSegment})+$`
+  // Un id de un solo segmento ("opencode") lo rechaza VS Code con un warning
+  // en la consola del renderer, y el icono nunca llega a registrarse.
+  const ICON_ID = /^[A-Za-z0-9]+(-[A-Za-z0-9]+)+$/;
+
+  test("hay al menos un icono contribuido", () => {
+    assert.ok(Object.keys(icons).length > 0, "no se contribuyó ningún icono");
+  });
+
+  test("cada id de icono cumple el patrón de dos segmentos de VS Code", () => {
+    for (const id of Object.keys(icons)) {
+      assert.match(id, ICON_ID, `id de icono inválido: ${id}`);
+    }
+  });
+
+  // Si la fuente sigue pidiendo $(opencode) y el manifest llama al icono
+  // opencode-logo, el indicador dibuja el glifo literal en lugar del logo.
+  test("el id contribuido se usa realmente en el código", () => {
+    const fuentes = fs
+      .readdirSync(path.join(root, "src"), { recursive: true, encoding: "utf8" })
+      .filter(f => f.endsWith(".ts"))
+      .map(f => fs.readFileSync(path.join(root, "src", f), "utf8"))
+      .join("\n");
+    for (const id of Object.keys(icons)) {
+      // `$(<id>)` es la única forma en que el código puede referenciarlo.
+      assert.ok(fuentes.includes("$(" + id + ")"), `icono contribuido pero nunca usado: ${id}`);
+    }
   });
 });
