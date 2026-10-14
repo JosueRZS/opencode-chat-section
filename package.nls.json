@@ -6,7 +6,7 @@
   "commands.showOutput.title": "OpenCode: Show Output",
   "commands.toggle.title": "OpenCode: Toggle Chat + OpenCode",
   "commands.restorePosition.title": "OpenCode: Restore Position Below Chat",
-  "commands.usageSetApiKey.title": "OpenCode: Set Usage API Key",
+  "commands.usageSetApiKey.title": "OpenCode: Set Usage API Key (fallback)",
   "commands.usageClearApiKey.title": "OpenCode: Clear Usage API Key",
   "commands.usageRefresh.title": "OpenCode: Refresh Usage",
 
@@ -23,6 +23,6 @@
   "config.ptySpawnTimeout.description": "Milliseconds to wait for node-pty to confirm the spawn before treating the PTY as blocked.",
   "config.autoPromptInstall.description": "If `opencode` is not found on the PATH, offer to install it. The section opens either way — the helper is a convenience, not a gate.",
   "config.installMethod.description": "How to install OpenCode. `npm` runs `npm install -g @opencode/cli` (the current v2 package; `opencode-ai` is frozen at v1). `script` runs `curl -fsSL https://opencode.ai/install | bash` (POSIX only; on Windows it falls back to npm). `auto` means npm.",
-  "config.usageEnabled.description": "Show the model usage indicator in the status bar. It makes no request at all until you save an API key with OpenCode: Set Usage API Key, and when it does it only ever talks to opencode.ai. The OpenCode TUI itself stays a plain PTY and never goes through this code path.",
+  "config.usageEnabled.description": "Show the model usage indicator in the status bar. It reuses the credential the OpenCode CLI already has stored, read with `opencode auth export`, so no setup is needed; only if the CLI has none does it fall back to the key set with OpenCode: Set Usage API Key. With neither available it does not appear and sends no request at all. The OpenCode TUI itself stays a plain PTY and never goes through this code path.",
   "config.usageInterval.description": "Minutes between usage refreshes. Values under 5 are raised to 5."
 }

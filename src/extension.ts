@@ -131,10 +131,15 @@ export function activate(context: vscode.ExtensionContext): void {
       // aviso es lo único que confirma que los dos mandatos corrieron.
       void vscode.window.showInformationMessage(vscode.l10n.t("OpenCode: the section is below Chat."));
     }),
-    // --- Cuota de modelos: clave, refresco y borrado ---
+    // --- Cuota de modelos: respaldo manual, refresco y borrado ---
     vscode.commands.registerCommand("opencodeChat.usage.setApiKey", () => usage.setApiKey()),
-    vscode.commands.registerCommand("opencodeChat.usage.refresh", () => usage.refresh()),
     vscode.commands.registerCommand("opencodeChat.usage.clearApiKey", () => usage.clearApiKey()),
+    // El refresco explícito descarta también la memoización del CLI, así que
+    // «Actualizar» vuelve a leer la credencial y no solo la cuota.
+    vscode.commands.registerCommand("opencodeChat.usage.refresh", () => {
+      usage.invalidateCredential();
+      return usage.refresh();
+    }),
   );
 
   // --- Ciclo de vida (§7.3) — la señal es `onExit` de la PTY ---

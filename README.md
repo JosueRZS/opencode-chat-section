@@ -102,9 +102,9 @@ code --install-extension .\opencode-vscode-chat-0.0.1.vsix
 | `OpenCode: Mostrar/ocultar` | `Ctrl+Alt+K` | Toggles Chat + OpenCode together |
 | `OpenCode: Ver canal de Salida` | — | Shows the Output channel |
 | `OpenCode: Reestablecer posición del chat` | — | Puts the section back below Chat |
-| `OpenCode: Establecer la clave de API de uso` | — | Prompts for the API key used by the usage indicator |
-| `OpenCode: Actualizar el uso` | — | Refreshes the usage indicator now |
-| `OpenCode: Borrar la clave de API de uso` | — | Forgets the key and removes the indicator |
+| `OpenCode: Establecer la clave de API de uso (respaldo)` | — | Stores a fallback key for when the CLI has none — normally unnecessary |
+| `OpenCode: Actualizar el uso` | — | Re-reads the credential and refreshes the indicator |
+| `OpenCode: Borrar la clave de API de uso` | — | Forgets the fallback key |
 
 Keybindings are deliberately chosen to avoid colliding with the official
 OpenCode extension. **Both extensions can be installed side by side.**
@@ -123,7 +123,7 @@ OpenCode extension. **Both extensions can be installed side by side.**
 | `opencodeChat.autoPromptInstall` | `true` | Offer to install the CLI when it is missing |
 | `opencodeChat.installMethod` | `auto` | `npm` or the official POSIX script |
 | `opencodeChat.chainExit` | `true` | Close the session cleanly when OpenCode exits |
-| `opencodeChat.usage.enabled` | `true` | Show the model usage indicator — inert until a key is saved |
+| `opencodeChat.usage.enabled` | `true` | Show the model usage indicator — uses the CLI's own credential |
 | `opencodeChat.usage.intervalMinutes` | `15` | Minutes between usage refreshes (minimum 5) |
 
 `tuiTabs` is worth a note: it is applied through an environment variable handed
@@ -144,11 +144,24 @@ Hovering it shows the full breakdown — percentage, status and when each window
 resets. Clicking it refreshes. If any window is rate-limited the item takes the
 warning background.
 
-**It is off until you turn it on.** There is no key, no request, and no item on
-screen by default. To enable it, run
-`OpenCode: Establecer la clave de API de uso` and paste an API key from
-[opencode.ai](https://opencode.ai). The key is stored in the VS Code secret
-store — not in `settings.json`, not on disk in plain text.
+**It needs no setup.** The key is not something you configure: the extension
+reads the credential the OpenCode CLI already has stored, by running
+`opencode auth export` — the CLI's own command for printing stored
+credentials. If you are already logged into OpenCode, the indicator simply
+works.
+
+Where the credential comes from, in order:
+
+1. **The CLI's stored credential** (`opencode auth export`) — the normal path,
+   and the one that requires nothing from you.
+2. **A manually stored key** — only if the CLI yields none: not installed, not
+   authenticated, or `cliPath` pointing somewhere unusable. Set one with
+   `OpenCode: Establecer la clave de API de uso (respaldo)`; it lives in the VS
+   Code secret store, never in `settings.json`.
+3. **Nothing** → the indicator does not appear and no request is made.
+
+Which source is in use is written to the Output channel on every refresh, so
+there is never any doubt about which key is talking.
 
 What it is and is not:
 
@@ -159,8 +172,10 @@ What it is and is not:
 - The OpenCode logo in the indicator is OpenCode's own brand asset, used here
   only to identify whose quota is being shown. See the disclaimer above: this
   extension is not affiliated with OpenCode.
+- The credential is read by running a CLI subcommand, not by opening
+  `opencode.db` — that database is held by the running service, and reading it
+  would mean adding a SQLite driver and coupling to an undocumented schema.
 - Turning `opencodeChat.usage.enabled` off removes the item and stops the timer.
-  Deleting the key with `OpenCode: Borrar la clave de API de uso` does the same.
 
 The TUI itself does not participate in any of this. It remains a plain PTY.
 
@@ -203,10 +218,15 @@ extension host ── spawns ──► dist/pty-host.cjs   (ELECTRON_RUN_AS_NODE
 The usage indicator's own path:
 
 ```
+readCliCredential ──► opencode auth export   (~750 ms, memoized 5 min)
+                          │  credential table in opencode.db, via the CLI
+                          ▼
 UsageStatus ── fetch ──► https://opencode.ai/zen/go/v1/usage
-     ▲                        │ Authorization: Bearer <key from SecretStorage>
+     ▲                        │ Authorization: Bearer <cli credential>
      └── status bar ◄─────────┘  aborts after 15 s
 ```
+
+Fallback key from `SecretStorage` is tried only if the CLI yields none.
 
 ## Tests
 
@@ -245,6 +265,7 @@ Regressions pinned by these tests:
 | `manifest` → *no hay eventos onView redundantes* | VS Code generates `onView:` from `contributes.views`; declaring them by hand duplicates activation. |
 | `describeReset` → *cruza de horas a días en 24* | Rounding to the nearest put a reset 23 h 59' away at "1 d": it crossed the `< 24` boundary and reported the wrong window. |
 | `parseUsage` → *rechaza el payload si falta una ventana* | Rendering a guessed 0% would tell the user they had full quota when the reading had simply failed. |
+| `buildAuthExportCommand` → *rechaza rutas con comillas dobles* | `cliPath` reaches cmd.exe through the shell; `"` closes the quote and lets a crafted path append a second command. `%` expands even inside quotes. |
 
 ### Regenerating the status bar icon
 

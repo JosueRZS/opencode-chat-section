@@ -6,7 +6,7 @@
   "commands.showOutput.title": "OpenCode: Mostrar la salida",
   "commands.toggle.title": "OpenCode: Alternar Chat + OpenCode",
   "commands.restorePosition.title": "OpenCode: Reestablecer posición del chat",
-  "commands.usageSetApiKey.title": "OpenCode: Establecer la clave de API de uso",
+  "commands.usageSetApiKey.title": "OpenCode: Establecer la clave de API de uso (respaldo)",
   "commands.usageClearApiKey.title": "OpenCode: Borrar la clave de API de uso",
   "commands.usageRefresh.title": "OpenCode: Actualizar el uso",
 
@@ -23,6 +23,6 @@
   "config.ptySpawnTimeout.description": "Milisegundos que se espera a que node-pty confirme el arranque antes de dar el proceso PTY por bloqueado.",
   "config.autoPromptInstall.description": "Si `opencode` no aparece en el PATH, ofrecer instalarlo. La sección se abre igualmente: es una ayuda, no una puerta.",
   "config.installMethod.description": "Cómo instalar OpenCode. `npm` ejecuta `npm install -g @opencode/cli` (el paquete vigente de la v2; `opencode-ai` está congelado en la v1). `script` ejecuta `curl -fsSL https://opencode.ai/install | bash` (solo POSIX; en Windows se recurre a npm). `auto` equivale a npm.",
-  "config.usageEnabled.description": "Mostrar el indicador de uso de modelos en la barra de estado. No hace ninguna petición hasta que guardes una clave de API con OpenCode: Establecer la clave de API de uso, y cuando la hace solo habla con opencode.ai. La TUI de OpenCode sigue siendo una PTY pura y no pasa por esta ruta.",
+  "config.usageEnabled.description": "Mostrar el indicador de uso de modelos en la barra de estado. Reutiliza la credencial que el propio CLI de OpenCode ya tiene guardada, leída con `opencode auth export`, así que no hay que configurar nada; solo si el CLI no aporta ninguna se recurre a la clave de OpenCode: Establecer la clave de API de uso. Sin ninguna de las dos no aparece y no se envía ni una petición. La TUI de OpenCode sigue siendo una PTY pura y no pasa por esta ruta.",
   "config.usageInterval.description": "Minutos entre actualizaciones del uso. Los valores por debajo de 5 se suben a 5."
 }

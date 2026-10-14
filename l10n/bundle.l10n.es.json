@@ -19,7 +19,7 @@
   "exit code {0}": "código de salida {0}",
 
   "OpenCode usage": "Uso de OpenCode",
-  "Paste the OpenCode API key. It is stored in the VS Code secret store.": "Pega la clave de API de OpenCode. Se guarda en el almacén secreto de VS Code.",
+  "Optional fallback: the key the OpenCode CLI already has is used first. Only set one if the CLI is unavailable.": "Respaldo opcional: primero se usa la clave que el propio CLI de OpenCode ya tiene. Solo pon una si el CLI no está disponible.",
   "OpenCode: usage API key saved.": "OpenCode: clave de API de uso guardada.",
   "OpenCode: usage API key cleared.": "OpenCode: clave de API de uso borrada.",
   "Window": "Ventana",
