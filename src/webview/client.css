@@ -182,3 +182,52 @@ body {
 .terminal.session-over {
   opacity: 0.35;
 }
+
+/* --- P-044: la pregunta de instalación, DENTRO de la sección --- */
+/* Mismo overlay centrado que el de Launch: no es una ventana del editor, es la
+   propia sección la que pregunta — que es lo que exige P-028. */
+.install-panel {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+  text-align: center;
+  background: color-mix(in srgb, var(--vscode-terminal-background, #1e1e1e) 82%, transparent);
+}
+
+.install-msg {
+  font-size: 13px;
+  max-width: 90%;
+  color: var(--vscode-terminal-foreground, var(--vscode-foreground, #cccccc));
+}
+
+/* El comando va entero y sin partirse: el usuario acepta viendo la línea
+   exacta que se ejecutará. `white-space: pre` + scroll horizontal en lugar de
+   `word-break`, que partiría la línea por un sitio equivocado. */
+.install-cmd {
+  font-family: var(--vscode-editor-font-family, Consolas, "Courier New", monospace);
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 2px;
+  max-width: 92%;
+  overflow-x: auto;
+  white-space: pre;
+  background: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.15));
+  color: var(--vscode-terminal-foreground, var(--vscode-foreground, #cccccc));
+}
+
+.install-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* El «No» es un enlace, no un segundo botón primario al lado de «Sí, instalar». */
+.install-actions .link-btn {
+  margin-left: 0;
+}

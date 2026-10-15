@@ -75,8 +75,10 @@ billing, those come from the CLI itself — not from here.
 
 - Visual Studio Code **1.140** or later.
 - The **`opencode` CLI**, available as `opencode` on your `PATH`. If it is not
-  found, the extension offers to install it (`npm` or the official script) — but
-  the section opens either way; the helper is a convenience, not a gate.
+  found, the section itself asks whether to install it — inside the section, not
+  in a dialog — and detects which package manager you have in order to run its
+  official v2 command. The section opens either way; the helper is a
+  convenience, not a gate.
 
 ## Install
 
@@ -121,8 +123,8 @@ OpenCode extension. **Both extensions can be installed side by side.**
 | `opencodeChat.tuiTabs` | `off` | Session tab strip of the TUI — applied to **this** terminal only |
 | `opencodeChat.useConptyDll` | `true` | Use the `conpty.dll` shipped with `node-pty` |
 | `opencodeChat.ptySpawnTimeout` | `10000` | ms before the PTY is considered blocked |
-| `opencodeChat.autoPromptInstall` | `true` | Offer to install the CLI when it is missing |
-| `opencodeChat.installMethod` | `auto` | `npm` or the official POSIX script |
+| `opencodeChat.autoPromptInstall` | `true` | Ask to install the CLI when it is missing — inside the section |
+| `opencodeChat.installMethod` | `auto` | `npm`, `bun`, `pnpm`, `yarn`, `script`, or detect what is available |
 | `opencodeChat.chainExit` | `true` | Close the session cleanly when OpenCode exits |
 | `opencodeChat.usage.enabled` | `true` | Show the model usage indicator — uses the CLI's own credential |
 | `opencodeChat.usage.intervalMinutes` | `15` | Minutes between usage refreshes (minimum 5) |
@@ -301,7 +303,7 @@ reorder, the Output channel records exactly which step failed.
 
 **“opencode not found”.**
 Set `opencodeChat.cliPath` to the absolute path of the binary, or accept the
-install prompt.
+offer the section shows with the exact command it will run.
 
 **The screen looks corrupted or frozen on Windows.**
 Turn off `opencodeChat.useConptyDll` and relaunch.

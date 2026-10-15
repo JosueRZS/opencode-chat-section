@@ -38,6 +38,12 @@ const spinner = document.getElementById("spinner") as HTMLSpanElement;
 // P-033: el botón Launch que la sección muestra al terminar la sesión.
 const launchPanel = document.getElementById("launch-panel") as HTMLDivElement;
 const launchBtn = document.getElementById("launch-btn") as HTMLButtonElement;
+// P-044: la pregunta de instalación, dentro de la sección y no en un diálogo.
+const installPanel = document.getElementById("install-panel") as HTMLDivElement;
+const installMsg = document.getElementById("install-msg") as HTMLDivElement;
+const installCmd = document.getElementById("install-cmd") as HTMLElement;
+const installYes = document.getElementById("install-yes") as HTMLButtonElement;
+const installNo = document.getElementById("install-no") as HTMLButtonElement;
 
 // --- Colores del tema de VS Code (xterm no los hereda solo) ---
 function cssVar(name: string, fallback: string): string {
@@ -248,8 +254,21 @@ function setState(running: boolean): void {
 // Las etiquetas llegan YA traducidas del host: el webview no tiene acceso a
 // `vscode.l10n` (es contexto de navegador), así que no puede resolverlas aquí.
 
-/** Fases donde la sección está en silencio: solo terminal (P-028). */
-const SILENT_PHASES = new Set(["idle", "starting", "running", "exited"]);
+/**
+ * Fases donde la sección está en silencio: solo terminal (P-028).
+ *
+ * `install-pending` y `awaiting-launch` van aquí porque las dos tienen su
+ * propio panel — la pregunta y el botón Launch (P-044): meter además la barra
+ * de estado sería duplicar el mensaje.
+ */
+const SILENT_PHASES = new Set([
+  "idle",
+  "starting",
+  "running",
+  "exited",
+  "install-pending",
+  "awaiting-launch",
+]);
 
 function setStatus(phase: string, detail: string, label: string): void {
   statusText.textContent = detail ? `${label} ${detail}` : label;
@@ -284,6 +303,38 @@ launchBtn.addEventListener("click", () => {
   vscode.postMessage({ type: "launch" });
 });
 
+/**
+ * P-044 — El panel de instalación.
+ *
+ * Mientras está a la vista, la terminal queda debajo igual que con el panel de
+ * Launch: no hay sesión que leer todavía, y apilarlo solo añadiría ruido.
+ * La respuesta sale como mensaje y la extensión decide; el panel no se oculta
+ * aquí para que el estado viva en un solo sitio.
+ */
+function setInstallPanel(visible: boolean, message: string, command: string): void {
+  installPanel.classList.toggle("hidden", !visible);
+  termEl.classList.toggle("session-over", visible);
+  if (visible) {
+    // No los dos a la vez: si el usuario pulsó Launch tras una sesión, el panel
+    // de Launch seguía a la vista. La pregunta lo sustituye; la respuesta
+    // volverá a decidir qué se muestra.
+    launchPanel.classList.add("hidden");
+    installMsg.textContent = message;
+    // El comando es texto literal del host: NO se usa innerHTML. Es una línea
+    // de shell que construye la extensión, y pasarla por HTML sería una vía
+    // de inyección gratuita hacia el propio webview.
+    installCmd.textContent = command;
+    installYes.focus();
+  }
+}
+
+installYes.addEventListener("click", () => {
+  vscode.postMessage({ type: "installAnswer", yes: true });
+});
+installNo.addEventListener("click", () => {
+  vscode.postMessage({ type: "installAnswer", yes: false });
+});
+
 window.addEventListener("message", (e: MessageEvent) => {
   const msg = e.data as {
     type: string;
@@ -294,6 +345,8 @@ window.addEventListener("message", (e: MessageEvent) => {
     label?: string;
     visible?: boolean;
     style?: TerminalStyle;
+    message?: string;
+    command?: string;
   };
   switch (msg?.type) {
     case "data":
@@ -309,6 +362,9 @@ window.addEventListener("message", (e: MessageEvent) => {
       break;
     case "launchButton":
       setLaunchPanel(msg.visible === true);
+      break;
+    case "installOffer":
+      setInstallPanel(msg.visible === true, msg.message ?? "", msg.command ?? "");
       break;
     case "config":
       if (msg.style) {

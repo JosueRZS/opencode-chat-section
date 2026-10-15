@@ -67,15 +67,17 @@ describe("vscode.l10n", () => {
   });
 
   // Marcadores de que el refactor llegó a donde debía: el botón de la sección y
-  // el flujo de instalación (P-031) son lo que el usuario ve casi siempre.
+  // el flujo de instalación (P-031) son lo que el usuario ve casi siempre. La
+  // pregunta ya vive en un panel de la propia sección (P-044), así que las
+  // sentinelas son su texto y sus dos botones, no el viejo diálogo modal.
   test("siguen localizados el botón de lanzado y el flujo de instalación", () => {
     const used = usedKeys();
     for (const sentinel of [
       "Launch OpenCode",
-      "OpenCode was not found on your PATH. Install it now?",
+      "OpenCode was not found on your PATH.",
       "Installing OpenCode…",
       "Yes, install",
-      "View output",
+      "No",
     ]) {
       assert.ok(used.has(sentinel), `desapareció: ${sentinel}`);
       assert.ok(sentinel in bundle, `sin traducción: ${sentinel}`);

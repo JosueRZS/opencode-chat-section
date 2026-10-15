@@ -9,7 +9,11 @@ import {
 } from "../utils/shell";
 import { STATUS_VIEW_ID } from "../utils/placement";
 import { stamp } from "../utils/log";
-import { ensureOpencodeAvailable } from "../utils/opencodeInstall";
+import {
+  ensureOpencodeAvailable,
+  type GuardResult,
+  type InstallOffer,
+} from "../utils/opencodeInstall";
 import type { FileLog } from "../utils/filelog";
 import { PtyHostClient } from "./PtyHostClient";
 
@@ -35,6 +39,28 @@ export class OpenCodePty implements vscode.Disposable {
   private running = false;
   /** Fase 3: ya se está comprobando/instalando ⇒ no lanzar dos veces (P-031). */
   private preparing = false;
+  /**
+   * P-044 — cómo se pregunta «¿instalarlo?». La respuesta la da la SECCIÓN
+   * (su propio panel), no un diálogo del editor, así que el PTY no puede
+   * preguntar por sí solo: la vista se lo inyecta al construirse.
+   *
+   * Si aún no hay vista —o se está recreando— no se pregunta y la guardia
+   * devuelve `blocked`; la sección acabará en el botón Launch.
+   */
+  private installAsker: ((offer: InstallOffer) => Promise<boolean>) | undefined;
+  /**
+   * P-044 — ¿la guardia ya se pronunció sobre un OpenCode que faltaba?
+   *
+   * Una vez contestada la pregunta —o una vez saltada por decisión del
+   * usuario— Launch deja de consultar la guardia y lanza de verdad. Sin esto
+   * habría dos callejones: volver a preguntar en cada pulsación, o quedarse
+   * re-probando sin hacer nada visible. Si OpenCode sigue sin estar, que sea el
+   * shell de la sección el que lo diga: es la verdad y es accionable.
+   *
+   * `false` al inicio de cada sesión de editor; la guardia que encuentra el CLI
+   * no lo asienta, para que un `opencode` instalado a mano después sí se note.
+   */
+  private installSettled = false;
   private pid: number | undefined;
 
   private readonly stateEmitter = new vscode.EventEmitter<void>();
@@ -179,11 +205,33 @@ export class OpenCodePty implements vscode.Disposable {
     void this.ensureAndLaunch();
   }
 
+  /** P-044: la vista inyecta aquí cómo preguntar «¿instalarlo?» dentro de la sección. */
+  setInstallAsker(ask: (offer: InstallOffer) => Promise<boolean>): void {
+    this.installAsker = ask;
+  }
+
   private async ensureAndLaunch(): Promise<void> {
+    // P-044 — La guardia sólo se consulta mientras no se haya pronunciado.
+    if (this.installSettled) {
+      this.preparing = false;
+      this.doLaunch();
+      return;
+    }
+
+    let outcome: GuardResult["outcome"] = "available";
+    let error = "";
     try {
-      await ensureOpencodeAvailable(this.output, this.fileLog, (phase, detail) =>
-        this.setStatus(phase, detail),
+      const guard = await ensureOpencodeAvailable(
+        this.output,
+        this.fileLog,
+        (phase, detail) => this.setStatus(phase, detail),
+        this.installAsker,
       );
+      outcome = guard.outcome;
+      error = guard.error;
+      // Sólo `blocked`: si el CLI estaba, la próxima pulsación vuelve a
+      // comprobarlo, así que un `opencode` instalado a mano sí se detecta.
+      this.installSettled = guard.outcome === "blocked";
     } catch (e) {
       // La guardía nunca debe impedir el arranque: se lanza igualmente (P-028).
       this.trace(
@@ -196,6 +244,14 @@ export class OpenCodePty implements vscode.Disposable {
 
     // El usuario pudo lanzar manualmente mientras esperábamos.
     if (this.running) {
+      return;
+    }
+
+    // P-044 — si la guardia tuvo que intervenir, NO se autoarranca: la sección
+    // vuelve al botón Launch. Arrancar en silencio algo que acabamos de decirle
+    // al usuario que faltaba sería ignorar lo que acaba de contestar.
+    if (outcome === "blocked") {
+      this.setStatus(error ? "error" : "awaiting-launch", error);
       return;
     }
     this.doLaunch();

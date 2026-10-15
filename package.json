@@ -206,6 +206,9 @@
           "enum": [
             "auto",
             "npm",
+            "bun",
+            "pnpm",
+            "yarn",
             "script"
           ],
           "description": "%config.installMethod.description%"

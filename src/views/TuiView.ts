@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import type { OpenCodePty } from "../terminal/OpenCodePty";
 import type { FileLog } from "../utils/filelog";
+import type { InstallOffer } from "../utils/opencodeInstall";
 import { STATUS_VIEW_ID } from "../utils/placement";
 import type { TerminalStyle } from "../shared/terminalStyle";
 import { describeTerminalStyle, readTerminalStyle } from "../utils/terminalConfig";
@@ -14,7 +15,8 @@ type InMsg =
   | { type: "resize"; cols: number; rows: number }
   | { type: "renderer"; webgl: boolean }
   | { type: "launch" }
-  | { type: "showOutput" };
+  | { type: "showOutput" }
+  | { type: "installAnswer"; yes: boolean };
 
 /** Mensajes extensión → webview. */
 type OutMsg =
@@ -22,7 +24,8 @@ type OutMsg =
   | { type: "state"; running: boolean }
   | { type: "status"; phase: string; detail: string; label: string }
   | { type: "config"; style: TerminalStyle }
-  | { type: "launchButton"; visible: boolean };
+  | { type: "launchButton"; visible: boolean }
+  | { type: "installOffer"; visible: boolean; message: string; command: string };
 
 /**
  * Etiqueta de cada fase, ya en el idioma del editor.
@@ -79,6 +82,19 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   private inputQuiet: ReturnType<typeof setTimeout> | undefined;
   /** P-041: solo se informa del primer lote de cada webview. */
   private inputReported = false;
+  /**
+   * P-044 — la promesa de la pregunta «¿instalar OpenCode?», pendiente de que
+   * el usuario conteste en el panel de la sección. Vive aquí y no en la
+   * extensión porque quien decide es el webview.
+   */
+  private pendingInstall: ((yes: boolean) => void) | undefined;
+  /**
+   * Última oferta mostrada. Se reenvía al llegar el `ready`: el webview puede
+   * recrearse (recargar la ventana, mover la vista) mientras la pregunta sigue
+   * en pie, y sin esto la sección quedaría muda esperando una respuesta que ya
+   * no puede recoger.
+   */
+  private lastOffer: InstallOffer | undefined;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -109,7 +125,11 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
           label: this.lastStatus.label,
         });
         // P-033: al terminar la sesión, la sección vuelve al botón Launch.
-        this.setLaunchButton(s.phase === "exited" || s.phase === "error");
+        // P-044: `awaiting-launch` es lo mismo visto desde la guardia — OpenCode
+        // faltaba y ya se contestó, así que queda en manos del usuario.
+        this.setLaunchButton(
+          s.phase === "exited" || s.phase === "error" || s.phase === "awaiting-launch",
+        );
         // Como en el resto de extensiones: si algo FALLA, la pestaña Salida se
         // abre sola y el motivo queda a la vista sin tener que buscarlo.
         if (s.phase === "error") {
@@ -117,6 +137,76 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
         }
       }),
     );
+
+    // P-044: el PTY no puede preguntar por sí solo — es la sección la que
+    // muestra la pregunta y la que recoge la respuesta.
+    pty.setInstallAsker(offer => this.askInstall(offer));
+  }
+
+  /**
+   * P-044 — Presenta «¿instalar OpenCode?» DENTRO de la sección y devuelve lo
+   * que se decida.
+   *
+   * El comando completo va con la pregunta: el usuario acepta viendo la línea
+   * exacta que se va a ejecutar (`bun install -g --trust @opencode/cli`, etc.),
+   * no un «Sí» a ciegas.
+   *
+   * Si el webview aún está cargando NO se descarta la pregunta: se encola y la
+   * sale el caso `ready`. Descartarla habría sido una carrera de pocos
+   * milisegundos — el arranque automático lanza la guardia al abrir la sección,
+   * casi al mismo tiempo que el cliente manda su `ready` — con un síntoma
+   * engañoso: en lugar de la pregunta aparecería sólo el Launch, y el usuario
+   * tendría que pulsarlo para ver lo que le íbamos a preguntar de todos modos.
+   */
+  private askInstall(offer: InstallOffer): Promise<boolean> {
+    // Se encola SIEMPRE, aunque la sección aún no exista. `opencodeChat.launch`
+    // se puede ejecutar desde la Paleta de comandos con la vista nunca abierta;
+    // responder «no» ahí quemaría la decisión sin que nadie llegara a ver la
+    // pregunta, y el usuario se quedaría sin ella. Como `resolveWebviewView`
+    // termina en `autoLaunchIfIdle` y su `ready` reenvía `lastOffer`, la oferta
+    // sale en cuanto la sección exista — que es donde el usuario iba a mirar.
+    return new Promise<boolean>(resolve => {
+      this.pendingInstall = resolve;
+      this.lastOffer = offer;
+      if (this.ready) {
+        this.showOffer();
+      } else {
+        this.trace("[view] oferta de instalación en cola, esperando a que exista la sección");
+      }
+    });
+  }
+
+  /** Envía al webview la oferta que haya pendiente. */
+  private showOffer(): void {
+    if (!this.lastOffer) {
+      return;
+    }
+    this.post({
+      type: "installOffer",
+      visible: true,
+      message: this.lastOffer.message,
+      command: this.lastOffer.command,
+    });
+    this.trace(`[view] oferta de instalación mostrada :: ${this.lastOffer.command}`);
+  }
+
+  /**
+   * Resuelve la pregunta pendiente.
+   *
+   * Hace falta en DOS sitios: cuando el usuario responde, y cuando la sección
+   * desaparece con la pregunta en pie. Esa promesa es lo que retiene
+   * `preparing` dentro del PTY — si se quedara sin resolver, el arranque
+   * quedaría colgado para siempre y ningún Launch posterior serviría de nada.
+   */
+  private settleInstall(yes: boolean, why: string): void {
+    const reply = this.pendingInstall;
+    this.pendingInstall = undefined;
+    this.lastOffer = undefined;
+    if (this.ready) {
+      this.post({ type: "installOffer", visible: false, message: "", command: "" });
+    }
+    this.trace(`[view] instalación ${yes ? "aceptada" : "declinada"} (${why})`);
+    reply?.(yes);
   }
 
   /** P-025: traza a Salida (público) y al fichero (respaldo síncrono). */
@@ -234,7 +324,18 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
             // P-033: el botón Launch es estado persistido en la extensión; si el
             // webview se recrea, hay que volver a decirle si debe estar a la vista.
             this.post({ type: "launchButton", visible: this.launchButtonVisible });
-            this.trace(`[view] webview listo (replay=${replay.length}B, launch=${this.launchButtonVisible})`);
+            // P-044: lo mismo con la pregunta de instalación, si sigue en pie.
+            if (this.lastOffer) {
+              this.post({
+                type: "installOffer",
+                visible: true,
+                message: this.lastOffer.message,
+                command: this.lastOffer.command,
+              });
+            }
+            this.trace(
+              `[view] webview listo (replay=${replay.length}B, launch=${this.launchButtonVisible}, oferta=${this.lastOffer?.command ?? "no"})`,
+            );
             break;
           }
           case "renderer":
@@ -254,10 +355,17 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
             break;
           case "launch":
             // P-033: el botón de la sección. `launch()` corre la guardia de
-            // instalación (P-031) antes de arrancar: si falta OpenCode, primero
-            // aparece el diálogo de instalar sí/no.
+            // instalación (P-031) antes de arrancar: si falta OpenCode, la
+            // pregunta aparece como panel de ESTA sección (P-044), no como
+            // ventana aparte del editor.
             this.trace("[view] Launch pulsado en la sección");
             this.pty.launch();
+            break;
+          case "installAnswer":
+            // P-044: el usuario contestó en el panel de la sección. El panel se
+            // oculta aquí y no en el cliente para que el estado viva en un solo
+            // sitio y la respuesta no pueda quedar a medias.
+            this.settleInstall(msg.yes === true, "respuesta en la sección");
             break;
           case "resize":
             this.pty.resize(msg.cols, msg.rows);
@@ -274,6 +382,21 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       view.onDidChangeVisibility(() => {
         if (view.visible && this.pty.isRunning) {
           this.post({ type: "state", running: true });
+        }
+      }),
+    );
+
+    // P-044: si la sección desaparece con la pregunta de instalación en pie,
+    // hay que soltarla. Esa promesa es la que retiene `preparing` dentro del
+    // PTY: sin este cierre, un cierre de la vista dejaría el arranque colgado
+    // para siempre y todo Launch posterior sería inútil.
+    this.viewSubs.push(
+      view.onDidDispose(() => {
+        if (this.pendingInstall) {
+          // `ready = false` primero: ya no hay webview al que ocultar el panel,
+          // y `post` se apoya en esa bandera para no hablar con una vista muerta.
+          this.ready = false;
+          this.settleInstall(false, "la sección se cerró antes de contestar");
         }
       }),
     );
@@ -413,6 +536,20 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
        instalación (P-031) ya habla por sí sola cuando se pulsa. -->
   <div id="launch-panel" class="launch-panel hidden">
     <button id="launch-btn" class="launch-btn">${vscode.l10n.t("Launch OpenCode")}</button>
+  </div>
+  <!-- P-044: la pregunta «¿instalar OpenCode?» vive DENTRO de la sección, en la
+       misma pantalla donde está el botón Launch, y no en una ventana aparte del
+       editor. El mensaje y el comando llegan ya resueltos del host, porque el
+       webview corre en navegador y no tiene la API de localización de la
+       extensión. El comando va entero y a la vista — el usuario acepta viendo
+       la línea exacta que se ejecutará. -->
+  <div id="install-panel" class="install-panel hidden">
+    <div id="install-msg" class="install-msg"></div>
+    <code id="install-cmd" class="install-cmd"></code>
+    <div class="install-actions">
+      <button id="install-yes" class="launch-btn">${vscode.l10n.t("Yes, install")}</button>
+      <button id="install-no" class="link-btn">${vscode.l10n.t("No")}</button>
+    </div>
   </div>
   <div id="terminal" class="terminal"></div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
