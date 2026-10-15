@@ -155,16 +155,6 @@
           "default": "${workspaceFolder}",
           "description": "%config.terminalCwd.description%"
         },
-        "opencodeChat.focusOnLaunch": {
-          "type": "boolean",
-          "default": true,
-          "description": "%config.focusOnLaunch.description%"
-        },
-        "opencodeChat.disposeOnExit": {
-          "type": "boolean",
-          "default": true,
-          "description": "%config.disposeOnExit.description%"
-        },
         "opencodeChat.chainExit": {
           "type": "boolean",
           "default": true,

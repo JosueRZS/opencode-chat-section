@@ -9,15 +9,11 @@
   "commands.usageSetApiKey.title": "OpenCode: Establecer la clave de API de uso (respaldo)",
   "commands.usageClearApiKey.title": "OpenCode: Borrar la clave de API de uso",
   "commands.usageRefresh.title": "OpenCode: Actualizar el uso",
-
   "config.title": "OpenCode Chat",
-
   "config.cliPath.description": "Ruta al binario de OpenCode. Déjalo vacío para buscarlo en el PATH.",
   "config.terminalCwd.description": "Directorio de trabajo de la terminal. Admite ${workspaceFolder} y ~.",
-  "config.focusOnLaunch.description": "Enfocar la sección al lanzar OpenCode.",
-  "config.disposeOnExit.description": "Eliminar la sesión de terminal cuando OpenCode termina.",
   "config.chainExit.description": "Ejecutar `exit` después de OpenCode para que la sesión se cierre limpiamente al terminar.",
-  "config.autoLaunch.description": "Arrancar OpenCode automáticamente al abrir la sección, y volver a lanzarlo cuando una sesión termina. Desactivarlo deja la sección inactiva hasta que ejecutes OpenCode: Launch.",
+  "config.autoLaunch.description": "Arrancar OpenCode automáticamente la primera vez que se abre la sección. Desactivarlo deja la sección inactiva hasta que ejecutes OpenCode: Launch. Una sesión terminada siempre vuelve al botón Launch, nunca se relanza sola.",
   "config.tuiTabs.description": "Barra de pestañas de sesión de la TUI de OpenCode (la que muestra el título de la sesión y '+ New session'). Se aplica SOLO a la terminal de esta sección, mediante OPENCODE_CLI_CONFIG_CONTENT; tu ~/.config/opencode/cli.json global nunca se modifica. `off` la oculta, `auto` la muestra si cabe sitio, `on` la fuerza.",
   "config.useConptyDll.description": "Usar la conpty.dll incluida con node-pty en vez de la del sistema. Es el camino que usa la propia terminal de VS Code en Windows, y evita los cuelgues de ConPTY del sistema.",
   "config.ptySpawnTimeout.description": "Milisegundos que se espera a que node-pty confirme el arranque antes de dar el proceso PTY por bloqueado.",

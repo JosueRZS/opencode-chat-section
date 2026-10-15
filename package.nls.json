@@ -9,15 +9,11 @@
   "commands.usageSetApiKey.title": "OpenCode: Set Usage API Key (fallback)",
   "commands.usageClearApiKey.title": "OpenCode: Clear Usage API Key",
   "commands.usageRefresh.title": "OpenCode: Refresh Usage",
-
   "config.title": "OpenCode Chat",
-
   "config.cliPath.description": "Path to the OpenCode binary. Leave empty to search the PATH.",
   "config.terminalCwd.description": "Working directory of the terminal. Supports ${workspaceFolder} and ~.",
-  "config.focusOnLaunch.description": "Focus the section when OpenCode is launched.",
-  "config.disposeOnExit.description": "Remove the terminal session when OpenCode exits.",
   "config.chainExit.description": "Run `exit` after OpenCode so the session closes cleanly when it ends.",
-  "config.autoLaunch.description": "Start OpenCode automatically when the section opens, and relaunch it when a session ends. Turning this off leaves the section idle until you run OpenCode: Launch.",
+  "config.autoLaunch.description": "Start OpenCode automatically the first time the section opens. Turning this off leaves the section idle until you run OpenCode: Launch. An ended session always goes back to the Launch button, never to a silent restart.",
   "config.tuiTabs.description": "Session tab strip of the OpenCode TUI (the bar showing the session title and '+ New session'). Applied to THIS section's terminal only, through OPENCODE_CLI_CONFIG_CONTENT; your global ~/.config/opencode/cli.json is never modified. `off` hides it, `auto` shows it when there is room, `on` forces it.",
   "config.useConptyDll.description": "Use the conpty.dll bundled with node-pty instead of the system one. This is the path VS Code's own terminal uses on Windows, and it avoids the system ConPTY hangs.",
   "config.ptySpawnTimeout.description": "Milliseconds to wait for node-pty to confirm the spawn before treating the PTY as blocked.",
