@@ -416,7 +416,7 @@ not modified, only executed.
 
 ## License
 
-[MIT](./LICENSE) © Josue RZS.
+[MIT](./LICENSE) © JosueRZS.
 
 **The MIT licence covers this project's source code only.** It grants no rights
 over any third-party trademark, logo or brand asset — including
