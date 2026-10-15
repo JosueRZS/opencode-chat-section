@@ -190,14 +190,14 @@ export class OpenCodePty implements vscode.Disposable {
       // aparecer sin haber hecho nada.
       if (this.exitScheduled) {
         this.pendingLaunch = true;
-        this.trace("[launch]", "la PTY anterior se está cerrando ⇒ lanzamiento aplazado");
+        this.trace("[launch]", "la PTY anterior se esta cerrando -> lanzamiento aplazado");
         return;
       }
       this.setStatus("running", "ya hay una instancia en marcha");
       return;
     }
     if (this.preparing) {
-      this.trace("[launch]", "ignorado: ya se está comprobando/instalando");
+      this.trace("[launch]", "ignorado: ya se esta comprobando/instalando");
       return;
     }
 
@@ -236,7 +236,7 @@ export class OpenCodePty implements vscode.Disposable {
       // La guardía nunca debe impedir el arranque: se lanza igualmente (P-028).
       this.trace(
         "[install]",
-        `guardía de instalación falló: ${e instanceof Error ? e.message : String(e)} — se lanza igualmente`,
+        `guardia de instalacion fallo: ${e instanceof Error ? e.message : String(e)} - se lanza igualmente`,
       );
     } finally {
       this.preparing = false;
@@ -280,7 +280,7 @@ export class OpenCodePty implements vscode.Disposable {
       "[launch]",
       `shell=${shell.file} args=${JSON.stringify(shell.args)} cmd=${JSON.stringify(command)} cwd=${cwd ?? "(default)"} chain=${this.chainExit} conptyDll=${useConptyDll} timeout=${spawnTimeout}ms tui=${JSON.stringify(opencodeTuiEnv())}`,
     );
-    this.setStatus("starting", "arrancando el proceso PTY…");
+    this.setStatus("starting", "arrancando el proceso PTY...");
 
     this.client.launch(
       {
@@ -305,14 +305,14 @@ export class OpenCodePty implements vscode.Disposable {
   private onPtySpawned(pid: number): void {
     this.running = true;
     this.pid = pid;
-    this.trace("[pty]", `PTY creada (pid ${pid}); tecleando comando…`);
-    this.setStatus("starting", `PTY creada (pid ${pid}), esperando la salida del shell…`);
+    this.trace("[pty]", `PTY creada (pid ${pid}); tecleando comando...`);
+    this.setStatus("starting", `PTY creada (pid ${pid}), esperando la salida del shell...`);
 
     // P-027: si en3 s no llega ni un byte, decirlo en la barra de estado.
     this.firstDataTimer = setTimeout(() => {
       if (this.running && this.totalBytes === 0) {
         this.trace("[pty]", `spawn OK (pid ${pid}) pero sin salida tras 3 s`);
-        this.setStatus("starting", `spawn correcto (pid ${pid}) pero la PTY aún no manda salida…`);
+        this.setStatus("starting", `spawn correcto (pid ${pid}) pero la PTY aun no manda salida...`);
       }
     }, 3000);
 
@@ -353,7 +353,7 @@ export class OpenCodePty implements vscode.Disposable {
     const hay = this.scanTail + d;
     if (hay.includes("\u001b[?1049h")) {
       this.altActive = true;
-      this.trace("[pty]", "TUI entró en alternate screen (ESC[?1049h)");
+      this.trace("[pty]", "TUI entro en alternate screen (ESC[?1049h)");
     }
     if (this.altActive && hay.includes("\u001b[?1049l")) {
       this.altActive = false;
@@ -380,9 +380,9 @@ export class OpenCodePty implements vscode.Disposable {
     this.exitScheduled = true;
     this.trace(
       "[pty]",
-      `TUI salió de alternate screen (ESC[?1049l) tras ${this.totalBytes} B ⇒ cerrando la sesión`,
+      `TUI salio de alternate screen (ESC[?1049l) tras ${this.totalBytes} B -> cerrando la sesion`,
     );
-    this.setStatus("exited", "la TUI terminó; devolviendo el control");
+    this.setStatus("exited", "la TUI termino; devolviendo el control");
     this.exitTimer = setTimeout(() => {
       this.exitTimer = undefined;
       if (this.chainExit && this.running) {
@@ -399,14 +399,14 @@ export class OpenCodePty implements vscode.Disposable {
     );
     this.running = false;
     this.pid = undefined;
-    this.setStatus("exited", `el proceso terminó con código ${exitCode}`);
+    this.setStatus("exited", `el proceso termino con codigo ${exitCode}`);
     this.stateEmitter.fire();
 
     // P-033: si pulsaron Launch mientras esta PTY se cerraba, toca lanzar ahora
     // — antes `running` seguía true y el intento se habría descartado.
     if (this.pendingLaunch) {
       this.pendingLaunch = false;
-      this.trace("[pty]", "lanzamiento aplazado: la PTY anterior terminó ⇒ lanzando");
+      this.trace("[pty]", "lanzamiento aplazado: la PTY anterior termino -> lanzando");
       setTimeout(() => this.launch(), 60);
     }
   }

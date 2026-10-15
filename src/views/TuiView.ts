@@ -171,7 +171,7 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       if (this.ready) {
         this.showOffer();
       } else {
-        this.trace("[view] oferta de instalación en cola, esperando a que exista la sección");
+        this.trace("[view] oferta de instalacion en cola, esperando a que exista la seccion");
       }
     });
   }
@@ -187,7 +187,7 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       message: this.lastOffer.message,
       command: this.lastOffer.command,
     });
-    this.trace(`[view] oferta de instalación mostrada :: ${this.lastOffer.command}`);
+    this.trace(`[view] oferta de instalacion mostrada :: ${this.lastOffer.command}`);
   }
 
   /**
@@ -205,7 +205,7 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     if (this.ready) {
       this.post({ type: "installOffer", visible: false, message: "", command: "" });
     }
-    this.trace(`[view] instalación ${yes ? "aceptada" : "declinada"} (${why})`);
+    this.trace(`[view] instalacion ${yes ? "aceptada" : "declinada"} (${why})`);
     reply?.(yes);
   }
 
@@ -257,7 +257,7 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       this.inputReported = true;
       this.trace(
         `[view] entrada del TUI confirmada: ${n} mensajes por onData ` +
-          `(lote inicial; con el ratón 1003 activo siguen llegando, sin registrarlas)`,
+          `(lote inicial; con el raton 1003 activo siguen llegando, sin registrarlas)`,
       );
     }, 1000);
   }
@@ -358,14 +358,14 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
             // instalación (P-031) antes de arrancar: si falta OpenCode, la
             // pregunta aparece como panel de ESTA sección (P-044), no como
             // ventana aparte del editor.
-            this.trace("[view] Launch pulsado en la sección");
+            this.trace("[view] Launch pulsado en la seccion");
             this.pty.launch();
             break;
           case "installAnswer":
             // P-044: el usuario contestó en el panel de la sección. El panel se
             // oculta aquí y no en el cliente para que el estado viva en un solo
             // sitio y la respuesta no pueda quedar a medias.
-            this.settleInstall(msg.yes === true, "respuesta en la sección");
+            this.settleInstall(msg.yes === true, "respuesta en la seccion");
             break;
           case "resize":
             this.pty.resize(msg.cols, msg.rows);
@@ -396,7 +396,7 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
           // `ready = false` primero: ya no hay webview al que ocultar el panel,
           // y `post` se apoya en esa bandera para no hablar con una vista muerta.
           this.ready = false;
-          this.settleInstall(false, "la sección se cerró antes de contestar");
+          this.settleInstall(false, "la seccion se cerro antes de contestar");
         }
       }),
     );
@@ -406,7 +406,7 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     this.viewSubs.push(
       vscode.workspace.onDidChangeConfiguration(e => {
         if (e.affectsConfiguration("terminal.integrated") || e.affectsConfiguration("workbench.colorCustomizations") || e.affectsConfiguration("workbench.colorTheme")) {
-          this.trace("[view] terminal.integrated / tema cambiados → reenviando estilo");
+          this.trace("[view] terminal.integrated / tema cambiados -> reenviando estilo");
           this.sendConfig();
         }
       }),
@@ -435,7 +435,7 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
       return;
     }
     if (this.launchButtonVisible) {
-      this.trace("[view] hay una sesión terminada ⇒ se espera al botón Launch");
+      this.trace("[view] hay una sesion terminada -> se espera al boton Launch");
       return;
     }
     this.trace("[view] auto-lanzando OpenCode");
@@ -469,7 +469,7 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     }
     this.launchButtonVisible = visible;
     this.post({ type: "launchButton", visible });
-    this.trace(`[view] botón Launch ${visible ? "visible" : "oculto"}`);
+    this.trace(`[view] boton Launch ${visible ? "visible" : "oculto"}`);
   }
 
   /**
@@ -501,7 +501,7 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
   private sendConfig(): void {
     const style = readTerminalStyle();
     this.post({ type: "config", style });
-    this.trace(`[view] estilo de terminal → webview: ${describeTerminalStyle(style)}`);
+    this.trace(`[view] estilo de terminal -> webview: ${describeTerminalStyle(style)}`);
   }
 
   private buildHtml(webview: vscode.Webview): string {

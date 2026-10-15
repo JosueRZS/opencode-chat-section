@@ -138,14 +138,16 @@ to **this extension's own child process**, so your global
 An optional readout in the status bar, at the bottom right, next to Copilot's:
 
 ```
-$(opencode) 42% · 38% · 61%
-             ▲      ▲      ▲
-        5 h rolling  weekly  monthly
+$(opencode-logo) 42% · 38% · 61%
+                  ▲      ▲      ▲
+          rolling usage weekly monthly
 ```
 
-Hovering it shows the full breakdown — percentage, status and when each window
-resets. Clicking it refreshes. If any window is rate-limited the item takes the
-warning background.
+Each window has its own name in the tooltip — *Uso continuo* (a 5-hour sliding
+window, not a daily one), *Uso semanal* and *Uso mensual* — translated to the
+editor's language. Hovering the item shows the full breakdown — percentage,
+status and when each window resets. Clicking it refreshes. If any window is
+rate-limited the item takes the warning background.
 
 **It needs no setup.** The key is not something you configure: the extension
 reads the credential the OpenCode CLI already has stored, by running

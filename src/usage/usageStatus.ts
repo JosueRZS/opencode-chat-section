@@ -275,7 +275,7 @@ export class UsageStatus implements vscode.Disposable {
         // La fuente se registra a propósito: si el CLI y la clave manual
         // difieren, hace falta saber cuál está mandando.
         this.output.appendLine(
-          `[usage] credencial ${used} · ${WINDOW_ORDER.map(k => `${k} ${snapshot[k].percent}%`).join(", ")}`,
+          `[usage] credencial ${used} | ${WINDOW_ORDER.map(k => `${k} ${snapshot[k].percent}%`).join(", ")}`,
         );
         return;
       }
@@ -380,12 +380,16 @@ export class UsageStatus implements vscode.Disposable {
   }
 
   /**
-   * `rolling` es una ventana deslizante de 5 horas. Llamarla «diario» haría
-   * creer al usuario que se renueva una vez al día cuando no es así.
+   * Etiqueta de cada ventana del indicador.
+   *
+   * `rolling` es una ventana DESLIZANTE de 5 horas: no se renueva a medianoche
+   * ni una vez al día, así que llamarla «diario» habría mentido sobre cuándo se
+   * recupera cuota. «Uso continuo» describe lo que de verdad es —un consumo
+   * medido sobre las últimas 5 horas— sin prometer un periodo concreto.
    */
   private windowLabel(key: WindowKey): string {
     if (key === "rolling") {
-      return vscode.l10n.t("5 h rolling");
+      return vscode.l10n.t("Rolling usage");
     }
     if (key === "weekly") {
       return vscode.l10n.t("Weekly");

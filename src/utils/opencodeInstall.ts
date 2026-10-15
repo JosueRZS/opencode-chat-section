@@ -291,7 +291,7 @@ export async function ensureOpencodeAvailable(
   }
 
   const blocked = (why: string): GuardResult => {
-    output.appendLine(`${stamp()} [install] ${why} → se vuelve al botón Launch`);
+    output.appendLine(`${stamp()} [install] ${why} -> se vuelve al boton Launch`);
     fileLog?.write(`[install] ${why}`);
     return { outcome: "blocked", error: "" };
   };
@@ -300,14 +300,14 @@ export async function ensureOpencodeAvailable(
     return blocked("no encontrado y autoPromptInstall=false");
   }
   if (!ask) {
-    return blocked("no encontrado y sin sección que pueda preguntar");
+    return blocked("no encontrado y sin seccion que pueda preguntar");
   }
 
   // ¿Con qué se instalaría? Se resuelve ANTES de preguntar porque la línea
   // completa forma parte de la pregunta: sin ella el usuario aceptaría a ciegas.
   const installer = await resolveInstaller(method);
   if (!installer) {
-    return blocked("no hay ningún gestor de paquetes disponible");
+    return blocked("no hay ningun gestor de paquetes disponible");
   }
   output.appendLine(`${stamp()} [install] instalador=${installer.id} :: ${installer.command}`);
   fileLog?.write(`[install] instalador=${installer.id}`);
@@ -321,7 +321,7 @@ export async function ensureOpencodeAvailable(
   const accepted = await ask(offer);
   fileLog?.write(`[install] respuesta del usuario: ${accepted ? "instalar" : "no"}`);
   if (!accepted) {
-    return blocked("el usuario declinó instalar");
+    return blocked("el usuario declino instalar");
   }
 
   // Paso 3 — instalación. El progreso va a la Salida; en la sección se ve la
@@ -340,8 +340,8 @@ export async function ensureOpencodeAvailable(
   // no el código de salida: npm puede devolver 0 y dejar el binario en un sitio
   // que el shell de arranque no alcanza.
   const after = await probeOpencode();
-  output.appendLine(`${stamp()} [install] re-comprobación found=${after.found} :: ${after.detail}`);
-  fileLog?.write(`[install] re-comprobación found=${after.found}`);
+  output.appendLine(`${stamp()} [install] re-comprobacion found=${after.found} :: ${after.detail}`);
+  fileLog?.write(`[install] re-comprobacion found=${after.found}`);
 
   if (!after.found) {
     const detail = result.detail || vscode.l10n.t("it was installed but is still not on the PATH");

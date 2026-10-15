@@ -70,9 +70,9 @@ export async function ensureStatusViewInChat(
   const commands = await vscode.commands.getCommands(true);
   if (!commands.includes("workbench.action.chat.open")) {
     output.appendLine(
-      `${stamp()} [place] Chat aún no cargado → movimiento de la vista aplazado al próximo arranque`,
+      `${stamp()} [place] Chat aun no cargado -> movimiento de la vista aplazado al proximo arranque`,
     );
-    fileLog?.write("[place] Chat AÚN NO CARGADO → movimiento aplazado (workbench.action.chat.open ausente)");
+    fileLog?.write("[place] Chat AUN NO CARGADO -> movimiento aplazado (workbench.action.chat.open ausente)");
     return "chat-not-loaded";
   }
 
@@ -84,15 +84,15 @@ export async function ensureStatusViewInChat(
     });
     await state.update(STATUS_PLACED_FLAG, true);
     output.appendLine(
-      `${stamp()} [place] vista OpenCode → contenedor de Chat (${wasPlaced ? "reafirmada/reparada" : "movida"}; si hubo movimiento, al final = debajo de Chat)`,
+      `${stamp()} [place] vista OpenCode -> contenedor de Chat (${wasPlaced ? "reafirmada/reparada" : "movida"}; si hubo movimiento, al final = debajo de Chat)`,
     );
     fileLog?.write(
-      `[place] moveViews OK (${wasPlaced ? "reafirmada/reparada" : "movida"}) → ${CHAT_CONTAINER_ID}`,
+      `[place] moveViews OK (${wasPlaced ? "reafirmada/reparada" : "movida"}) -> ${CHAT_CONTAINER_ID}`,
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     output.appendLine(`${stamp()} [place] no se pudo mover la vista: ${msg}`);
-    fileLog?.write(`[place] moveViews FALLÓ: ${msg}`);
+    fileLog?.write(`[place] moveViews FALLO: ${msg}`);
     return "error";
   }
 
@@ -221,16 +221,16 @@ export async function ensureStatusViewVisible(
   const inFlight = state.get<boolean>(REBUILD_IN_FLIGHT_FLAG) === true;
 
   if (!migrated && !inFlight) {
-    output.appendLine(`${stamp()} [place] primera visión tras el P-042 → reponiendo la sección una vez`);
+    output.appendLine(`${stamp()} [place] primera vision tras el P-042 -> reponiendo la seccion una vez`);
     await showStatusView(output, state, MIGRATION_FLAG, fileLog);
     return;
   }
   if (inFlight) {
-    output.appendLine(`${stamp()} [place] reconstrucción interrumpida a medias → reponiendo la sección`);
+    output.appendLine(`${stamp()} [place] reconstruccion interrumpida a medias -> reponiendo la seccion`);
     await showStatusView(output, state, REBUILD_IN_FLIGHT_FLAG, fileLog);
     return;
   }
-  fileLog?.write("[place] visibilidad de la sección intacta: se respeta lo que decida el usuario");
+  fileLog?.write("[place] visibilidad de la seccion intacta: se respeta lo que decida el usuario");
 }
 
 async function showStatusView(
@@ -244,8 +244,8 @@ async function showStatusView(
     await state.update(clearFlag, false);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    output.appendLine(`${stamp()} [place] no se pudo asegurar la visibilidad de la sección: ${msg}`);
-    fileLog?.write(`[place] ${STATUS_VIEW_ID}.focus falló: ${msg}`);
+    output.appendLine(`${stamp()} [place] no se pudo asegurar la visibilidad de la seccion: ${msg}`);
+    fileLog?.write(`[place] ${STATUS_VIEW_ID}.focus fallo: ${msg}`);
   }
 }
 
@@ -357,11 +357,11 @@ export async function restoreViewOrder(
   const forced = await setFocusedViewKey(STATUS_VIEW_ID);
   if (forced) {
     trace(
-      `[place] focusedView := ${STATUS_VIEW_ID} vía setContext (directo en IContextKeyService; ` +
+      `[place] focusedView := ${STATUS_VIEW_ID} via setContext (directo en IContextKeyService; ` +
         `no depende de que el webview confirme el foco)`,
     );
   } else {
-    trace(`[place] setContext/_setContext no disponibles → respaldo: ${STATUS_VIEW_ID}.focus + ${FOCUS_SETTLE} ms`);
+    trace(`[place] setContext/_setContext no disponibles -> respaldo: ${STATUS_VIEW_ID}.focus + ${FOCUS_SETTLE} ms`);
   }
 
   let rejects = 0;
@@ -418,7 +418,7 @@ export async function restoreViewOrder(
   }
   trace(
     `[place] orden restaurado: ${accepted} llamada(s) a ${MOVE_DOWN} sin rechazo ` +
-      `(en el borde son no-op, por eso el bucle es idempotente) → la vista queda la última del contenedor`,
+      `(en el borde son no-op, por eso el bucle es idempotente) -> la vista queda la ultima del contenedor`,
   );
   return "ok";
 }

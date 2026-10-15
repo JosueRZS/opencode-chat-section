@@ -110,7 +110,7 @@ export class PtyHostClient implements vscode.Disposable {
     // Plazo de arranque: si el hijo no habla, avisamos y lo matamos.
     this.bootTimer = setTimeout(() => {
       this.errorEmitter.fire(
-        `el proceso PTY no respondió en ${spawnTimeoutMs} ms (¿no existe el host en ${this.hostScript}?)`,
+        `el proceso PTY no respondio en ${spawnTimeoutMs} ms (no existe el host en ${this.hostScript}?)`,
       );
       this.kill();
     }, spawnTimeoutMs);
@@ -125,7 +125,7 @@ export class PtyHostClient implements vscode.Disposable {
     this.send({ type: "launch", id, ...spec });
     this.spawnTimer = setTimeout(() => {
       this.errorEmitter.fire(
-        `node-pty no confirmó el arranque en ${spawnTimeoutMs} ms (pid ${id})`,
+        `node-pty no confirmo el arranque en ${spawnTimeoutMs} ms (pid ${id})`,
       );
       this.kill();
     }, spawnTimeoutMs);

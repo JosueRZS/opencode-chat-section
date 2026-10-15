@@ -24,10 +24,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // asíncrono y vive en el extension host: si el host se cuelga (P-024 causa 3),
   // las últimas líneas se pierden. Este log sobrevive.
   const fileLog = new FileLog("opencode-chat.log");
-  fileLog.write(`=== extensión activada (pid ${process.pid}) ===`);
+  fileLog.write(`=== extension activada (pid ${process.pid}) ===`);
   // La Salida estándar (View → Output → "OpenCode Chat") es el canal público;
   // el fichero es el respaldo que sobrevive si el host se cuelga.
-  output.appendLine(`${stamp()} [activate] extensión activada (pid ${process.pid})`);
+  output.appendLine(`${stamp()} [activate] extension activada (pid ${process.pid})`);
   output.appendLine(`${stamp()} [activate] log de respaldo: ${fileLog.path}`);
 
   pty = new OpenCodePty(output, fileLog);
@@ -65,7 +65,7 @@ export function activate(context: vscode.ExtensionContext): void {
     return undefined;
   });
   void restoreTerminalView(output, context.globalState, fileLog);
-  output.appendLine(`${stamp()} [activate] extensión activada (webview+pty)`);
+  output.appendLine(`${stamp()} [activate] extension activada (webview+pty)`);
 
   // --- Comandos (Fase 1: launch / focus / newSession / sendSelection) ---
   context.subscriptions.push(
@@ -187,7 +187,7 @@ async function toggleChatAndOpenCode(
 
   await vscode.commands.executeCommand("workbench.action.toggleAuxiliaryBar");
   const after = await settleVisibility(view);
-  fileLog.write(`[toggle] después: visible=${after}`);
+  fileLog.write(`[toggle] despues: visible=${after}`);
 
   // Solo al MOSTRAR se enfoca. Si acabamos de ocultar, enfocarla la revelaría.
   if (after) {
