@@ -464,6 +464,10 @@ export class OpenCodePty implements vscode.Disposable {
 
   /** El webview informa de su tamaño real → redimensionar la PTY. */
   resize(cols: number, rows: number): void {
+    // Se traza el valor pedido, no sólo el hecho de que hubo un resize. Un
+    // `resize` es inofensivo en sí; lo que distingue un ajuste normal de la
+    // terminal rota (P-045) es si vino de 110x34 a 1x1 o viceversa.
+    this.trace("[pty]", `resize pedido: ${cols}x${rows}`);
     if (!this.running || cols <= 0 || rows <= 0) {
       return;
     }

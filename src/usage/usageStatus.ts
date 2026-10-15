@@ -347,7 +347,7 @@ export class UsageStatus implements vscode.Disposable {
   }
 
   private paint(snapshot: UsageSnapshot, warning: boolean): void {
-    const percents = WINDOW_ORDER.map(key => `${snapshot[key].percent}%`).join(" · ");
+    const percents = WINDOW_ORDER.map(key => `${snapshot[key].percent}%`).join(" | ");
     this.item.text = `$(opencode-logo) ${percents}`;
     this.item.backgroundColor = warning ? new vscode.ThemeColor("statusBarItem.warningBackground") : undefined;
   }
@@ -408,13 +408,14 @@ export class UsageStatus implements vscode.Disposable {
     if (reset.kind === "raw") {
       return reset.value;
     }
-    if (reset.kind === "min") {
-      return vscode.l10n.t("in {0} min", reset.value);
+    if (reset.kind === "duration") {
+      return reset.hours > 0
+        ? vscode.l10n.t("{0}h {1}m", reset.hours, reset.minutes)
+        : vscode.l10n.t("{0}m", reset.minutes);
     }
-    if (reset.kind === "h") {
-      return vscode.l10n.t("in {0} h", reset.value);
-    }
-    return vscode.l10n.t("in {0} d", reset.value);
+    return reset.hours > 0
+      ? vscode.l10n.t("{0}d {1}h", reset.days, reset.hours)
+      : vscode.l10n.t("{0}d", reset.days);
   }
 
   private reasonText(reason: UsageFailure): string {

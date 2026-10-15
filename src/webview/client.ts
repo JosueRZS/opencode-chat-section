@@ -210,7 +210,21 @@ term.onData(data => {
 
 // Tamaño real → PTY (ConPTY lo necesita para que el TUI reflowee bien).
 let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+/** Último tamaño ya mandado; sirve para no repetir y para no medir a ciegas. */
+let sentCols = -1;
+let sentRows = -1;
+/**
+ * Oculta la sección, el contenedor está colapsado y `fit` propondría 1 fila.
+ * Mandarla es lo que aplasta el TUI: ConPTY se la cree y redibuja todo en una
+ * línea, y al volver a mostrarse la sección sólo queda un rótulo arriba y
+ * negro debajo. Mientras la sección esté fuera de vista no se mide nada.
+ */
+let sectionVisible = true;
+
 function reportSize(): void {
+  if (!sectionVisible) {
+    return;
+  }
   try {
     fit.fit();
   } catch {
@@ -218,16 +232,26 @@ function reportSize(): void {
   }
   // Con tamaño real ya se puede cargar WebGL (necesita dims > 0).
   enableWebgl();
-  if (term.cols > 0 && term.rows > 0) {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => {
-      vscode.postMessage({ type: "resize", cols: term.cols, rows: term.rows });
-    }, 50);
+  if (term.cols <= 0 || term.rows <= 0) {
+    return;
   }
+  // Igual que la última vez: no hay nada que comunicar. Hace que los refits de
+  // redimensión barata sean inocuos, y evita ruido en ConPTY.
+  if (term.cols === sentCols && term.rows === sentRows) {
+    return;
+  }
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    sentCols = term.cols;
+    sentRows = term.rows;
+    vscode.postMessage({ type: "resize", cols: sentCols, rows: sentRows });
+  }, 50);
 }
 
 const observer = new ResizeObserver(() => reportSize());
 observer.observe(termEl);
+// La barra puede reasentarse sin que `termEl` cambie de tamaño observable.
+window.addEventListener("resize", () => reportSize());
 
 // --- Estado de la sesión ---
 // P-028: la sección ES la terminal. El TUI está siempre visible; solo cambian
@@ -370,6 +394,17 @@ window.addEventListener("message", (e: MessageEvent) => {
       if (msg.style) {
         applyStyle(msg.style);
       }
+      break;
+    case "visibility":
+      // Mientras la sección esté colapsada no se mide: ver `sectionVisible`.
+      sectionVisible = msg.visible === true;
+      break;
+    case "refit":
+      // El host avisa de que la barra acaba de reabrirse. El ResizeObserver no
+      // siempre dispara al volver (VS Code colapsa el contenedor sin que
+      // `termEl` cambie de tamaño observable), así que la re-medida queda en
+      // manos de este aviso, no de la suerte.
+      reportSize();
       break;
   }
 });

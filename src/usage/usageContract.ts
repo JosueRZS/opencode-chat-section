@@ -119,18 +119,25 @@ export function isLimited(snapshot: UsageSnapshot): boolean {
 /** Cuándo se restablece una ventana, reducido a lo que se puede traducir. */
 export type RelativeReset =
   | { kind: "now" }
-  | { kind: "min" | "h" | "d"; value: number }
+  /**
+   * Menos de un día. Va con MINUTOS, no sólo horas: una ventana que se
+   * restablece en 3 h 25' y otra en 3 h 05' son decisiones distintas para el
+   * usuario, y «3 h» las hacía indistinguibles.
+   */
+  | { kind: "duration"; hours: number; minutes: number }
+  /** Un día o más: días + horas restantes. */
+  | { kind: "days"; days: number; hours: number }
   /** Fecha que no se pudo interpretar: se muestra tal cual, sin interpretarla. */
   | { kind: "raw"; value: string };
 
 /**
- * Reduce `resetsAt` a una unidad. Devuelve el dato, no la frase: traducir aquí
+ * Reduce `resetsAt` a una duración. Devuelve el dato, no la frase: traducir aquí
  * obligaría a importar `vscode` y este módulo tiene que seguir siendo puro.
  *
  * Se redondea hacia ABAJO, no al más cercano. Con redondeo al más cercano, un
  * restablecimiento a 23 h 59' produciría 24 h, que ya no cumple `< 24`, y el
  * dato saltaría a «1 d» — anunciaría mal la cuota. Para una cuenta atrás,
- * decir «23 h» cuando faltan 23 h 59' es conservador y correcto; lo contrario
+ * decir «23 h 59'» cuando faltan eso es conservador y correcto; lo contrario
  * adelantaría el momento.
  */
 export function describeReset(resetsAt: string | undefined, now: number): RelativeReset | undefined {
@@ -145,17 +152,14 @@ export function describeReset(resetsAt: string | undefined, now: number): Relati
   if (diffMs <= 0) {
     return { kind: "now" };
   }
-  const minutes = Math.floor(diffMs / 60_000);
+  const totalMinutes = Math.floor(diffMs / 60_000);
   // Menos de un minuto: la unidad más fina ya no informa, solo estorba.
-  if (minutes < 1) {
+  if (totalMinutes < 1) {
     return { kind: "now" };
   }
-  if (minutes < 60) {
-    return { kind: "min", value: minutes };
+  const totalHours = Math.floor(totalMinutes / 60);
+  if (totalHours < 24) {
+    return { kind: "duration", hours: totalHours, minutes: totalMinutes % 60 };
   }
-  const hours = Math.floor(diffMs / 3_600_000);
-  if (hours < 24) {
-    return { kind: "h", value: hours };
-  }
-  return { kind: "d", value: Math.floor(diffMs / 86_400_000) };
+  return { kind: "days", days: Math.floor(totalHours / 24), hours: totalHours % 24 };
 }

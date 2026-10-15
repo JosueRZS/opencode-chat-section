@@ -25,7 +25,14 @@ type OutMsg =
   | { type: "status"; phase: string; detail: string; label: string }
   | { type: "config"; style: TerminalStyle }
   | { type: "launchButton"; visible: boolean }
-  | { type: "installOffer"; visible: boolean; message: string; command: string };
+  | { type: "installOffer"; visible: boolean; message: string; command: string }
+  /**
+   * La sección está oculta. Mientras no vuelva, el webview NO debe medirse ni
+   * mandar tamaño: contenedor a 0x0, y `fit` propondría 1 fila.
+   */
+  | { type: "visibility"; visible: boolean }
+  /** Vuelve a medirse y avisa sólo si el tamaño cambió de verdad. */
+  | { type: "refit" };
 
 /**
  * Etiqueta de cada fase, ya en el idioma del editor.
@@ -95,6 +102,15 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
    * no puede recoger.
    */
   private lastOffer: InstallOffer | undefined;
+  /** Re-medida diferida de la terminal al volverse a mostrar la sección. */
+  private refitTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * Oculto el webview deja de medirse. Sin esto el `fit` corre con el
+   * contenedor colapsado, propone 1 fila, y ConPTY se cree que la terminal es
+   * de una línea: al volver a mostrarse la sección el TUI sigue aplastado y el
+   * resto de la pantalla queda en blanco.
+   */
+  private sectionVisible = true;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -303,6 +319,12 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
         switch (msg?.type) {
           case "ready": {
             this.ready = true;
+            // El webview puede recrearse mientras el workbench todavía tiene la
+            // sección colapsada. Sin este aviso previo, `sendConfig` mediría un
+            // contenedor a 0x0 y mandaría 1 fila a ConPTY: al reabrir, TUI
+            // aplastado y pantalla en negro. Va ANTES de todo lo demás.
+            this.sectionVisible = this.view?.visible ?? true;
+            this.post({ type: "visibility", visible: this.sectionVisible });
             // P-029: la tipografía real de la terminal de VS Code. Va ANTES del
             // replay para que el TUI se pinte ya con las métricas correctas.
             this.sendConfig();
@@ -376,13 +398,24 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
 
     view.webview.html = this.buildHtml(view.webview);
 
-    // Al ocultarse/mostrarse la sección, re-enfocar el TUI si está corriendo.
+    // Al ocultarse/mostrarse la sección: decirle al webview que deje de medirse,
+    // re-enfocar el TUI si está corriendo y volver a medir la terminal.
     // Nota: `onDidChangeVisibility` es `Event<void>` — el estado está en `view.visible`.
     this.viewSubs.push(
       view.onDidChangeVisibility(() => {
-        if (view.visible && this.pty.isRunning) {
+        this.sectionVisible = view.visible;
+        this.trace(
+          `[view] visibilidad de la seccion: ${view.visible ? "visible" : "oculta"}`,
+        );
+        this.post({ type: "visibility", visible: view.visible });
+        if (!view.visible) {
+          clearTimeout(this.refitTimer);
+          return;
+        }
+        if (this.pty.isRunning) {
           this.post({ type: "state", running: true });
         }
+        this.refit();
       }),
     );
 
@@ -392,6 +425,7 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
     // para siempre y todo Launch posterior sería inútil.
     this.viewSubs.push(
       view.onDidDispose(() => {
+        clearTimeout(this.refitTimer);
         if (this.pendingInstall) {
           // `ready = false` primero: ya no hay webview al que ocultar el panel,
           // y `post` se apoya en esa bandera para no hablar con una vista muerta.
@@ -479,6 +513,21 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
    */
   get isVisible(): boolean {
     return this.view?.visible ?? false;
+  }
+
+  /**
+   * Vuelve a medir la terminal tras mostrarse la sección.
+   *
+   * Un solo intento no basta: al reabrir la barra, el `state` y el primer
+   * `refit` llegan con el layout todavía viejo, y el ResizeObserver ni siquiera
+   * dispara porque VS Code colapsa el contenedor sin que `termEl` cambie de
+   * tamaño observable. Se reintenta una vez, ya asentada la terminal. Como el
+   * cliente descarta tamaños repetidos, esa segunda llamada es gratis.
+   */
+  private refit(): void {
+    clearTimeout(this.refitTimer);
+    this.post({ type: "refit" });
+    this.refitTimer = setTimeout(() => this.post({ type: "refit" }), 300);
   }
 
   private post(msg: OutMsg): void {

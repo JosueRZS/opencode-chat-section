@@ -167,19 +167,54 @@ describe("describeReset", () => {
   });
 
   test("elige la unidad según la distancia", () => {
-    assert.deepEqual(describeReset("2026-01-10T12:30:00Z", AHORA), { kind: "min", value: 30 });
-    assert.deepEqual(describeReset("2026-01-10T17:00:00Z", AHORA), { kind: "h", value: 5 });
-    assert.deepEqual(describeReset("2026-01-14T12:00:00Z", AHORA), { kind: "d", value: 4 });
+    assert.deepEqual(describeReset("2026-01-10T12:30:00Z", AHORA), {
+      kind: "duration",
+      hours: 0,
+      minutes: 30,
+    });
+    assert.deepEqual(describeReset("2026-01-10T17:00:00Z", AHORA), {
+      kind: "duration",
+      hours: 5,
+      minutes: 0,
+    });
+    assert.deepEqual(describeReset("2026-01-14T12:00:00Z", AHORA), {
+      kind: "days",
+      days: 4,
+      hours: 0,
+    });
+  });
+
+  // Las horas solas perdían información: 3 h 05' y 3 h 55' se veían iguales.
+  test("las horas van con los minutos de sobra", () => {
+    assert.deepEqual(describeReset("2026-01-10T15:25:00Z", AHORA), {
+      kind: "duration",
+      hours: 3,
+      minutes: 25,
+    });
+    assert.deepEqual(describeReset("2026-01-13T16:40:00Z", AHORA), {
+      kind: "days",
+      days: 3,
+      hours: 4,
+    });
   });
 
   test("menos de un minuto cuenta como ahora", () => {
     assert.deepEqual(describeReset("2026-01-10T12:00:30Z", AHORA), { kind: "now" });
   });
 
-  // El límite exacto: 23 h 59' redondea a horas, 24 h pasa a días.
+  // El límite exacto: 23 h 59' sigue siendo duración con sus minutos, 24 h
+  // exactos cruza a días.
   test("cruza de horas a días en 24", () => {
-    assert.equal(describeReset("2026-01-11T11:59:00Z", AHORA)?.kind, "h");
-    assert.equal(describeReset("2026-01-11T12:00:00Z", AHORA)?.kind, "d");
+    assert.deepEqual(describeReset("2026-01-11T11:59:00Z", AHORA), {
+      kind: "duration",
+      hours: 23,
+      minutes: 59,
+    });
+    assert.deepEqual(describeReset("2026-01-11T12:00:00Z", AHORA), {
+      kind: "days",
+      days: 1,
+      hours: 0,
+    });
   });
 
   // Una fecha ilegible se enseña tal cual: interpretarla sería mentir.
