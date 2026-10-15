@@ -9,9 +9,33 @@ A single glance at the Secondary Side Bar: Copilot Chat on top, your OpenCode
 session underneath, in the same container, without tabs and without touching the
 rest of your layout.
 
----
+## Contents
 
-## ⚠️ Disclaimer — read this first
+- **Getting started** — [What you get](#what-you-get) · [Requirements](#requirements) ·
+  [Install](#install)
+- **Using it** — [Commands](#commands) · [Settings](#settings) ·
+  [Model usage indicator](#model-usage-indicator) · [Diagnostics](#diagnostics) ·
+  [Troubleshooting](#troubleshooting)
+- **Under the hood** — [How it works](#how-it-works) · [Development](#development) ·
+  [Compatibility](#compatibility)
+- **Trust and legal** — [Disclaimer](#disclaimer) ·
+  [Data, network and credentials](#data-network-and-credentials) ·
+  [What it writes on your machine](#what-it-writes-on-your-machine) ·
+  [Third-party components](#third-party-components) · [License](#license) ·
+  [Credits](#credits)
+
+## Documentation
+
+| Document | What it answers |
+| --- | --- |
+| [DISCLAIMER.md](./DISCLAIMER.md) | Affiliation, trademarks, brand assets, warranty, support |
+| [PRIVACY.md](./PRIVACY.md) | What leaves your machine, where it goes, and what never does |
+| [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md) | Every redistributed component and its licence, verbatim |
+| [CHANGELOG.md](./CHANGELOG.md) | What changed, and when |
+| [tests/README.md](./tests/README.md) | How the suite works, and what it deliberately does not cover |
+| [LICENSE](./LICENSE) | MIT — the terms you get this under |
+
+## Disclaimer
 
 **This extension is not affiliated with, endorsed by, sponsored by, or connected
 to OpenCode, sst, anomalyco, or GitHub in any way.**
@@ -42,7 +66,7 @@ sign up for. Turn it off with `opencodeChat.usage.enabled`. The terminal above
 never goes near it. See [Model usage indicator](#model-usage-indicator) and
 [PRIVACY.md](./PRIVACY.md).
 
-### What this extension explicitly does **not** do
+### What this extension explicitly does not do
 
 | It does not… | Because… |
 | --- | --- |
@@ -68,8 +92,6 @@ To read the complete legal notice, see [DISCLAIMER.md](./DISCLAIMER.md).
 If you want new OpenCode features, model support, agents, authentication or
 billing, those come from the CLI itself — not from here.
 
----
-
 ## Data, network and credentials
 
 The complete list. There is no third item.
@@ -84,8 +106,6 @@ The complete list. There is no third item.
 
 The full statement, including what is *not* collected and why, is in
 [PRIVACY.md](./PRIVACY.md).
-
----
 
 ## What you get
 
@@ -113,8 +133,16 @@ The full statement, including what is *not* collected and why, is in
 
 ## Install
 
-There is **no Marketplace listing yet** — publishing is on hold — so the
-supported route today is the packaged `.vsix`:
+**There is no Marketplace listing yet**, so there is nothing to `ext install`.
+Build the extension from source — three commands:
+
+```bash
+npm install
+npm run build
+npx vsce package        # writes opencode-chat-section-0.0.1.vsix
+```
+
+Then install the file it produced:
 
 ```powershell
 code --install-extension .\opencode-chat-section-0.0.1.vsix
@@ -122,16 +150,10 @@ code --install-extension .\opencode-chat-section-0.0.1.vsix
 
 Or from the Extensions view: `⋯` → **Install from VSIX…**
 
-Building it from source, if you would rather:
-
-```bash
-npm install
-npm run build
-npx vsce package
-```
-
-Note that VS Code disables **auto-update** for extensions installed from a
-VSIX — you install each new version by hand. Once a listing exists, the usual
+Packaged builds will be attached to
+[Releases](https://github.com/JosueRZS/opencode-chat-section/releases) as they are
+cut. Note that VS Code disables **auto-update** for extensions installed from a
+VSIX — you install each new version by hand. Once a listing exists, plain
 `ext install JosueRZS.opencode-chat-section` will apply.
 
 ## Commands
@@ -254,6 +276,24 @@ The list is short, and it is the whole list.
 
 Nothing else is created, and **no file belonging to OpenCode is ever modified**.
 
+## Troubleshooting
+
+**The section does not appear.**
+Check View → Output → “OpenCode Chat”. The section lives inside the Chat
+container; if Copilot Chat has not registered its container yet, placement is
+deferred to the next start.
+
+**The section is in the wrong place.**
+Run `OpenCode: Reestablecer posición del chat`. If it reports that it could not
+reorder, the Output channel records exactly which step failed.
+
+**“opencode not found”.**
+Set `opencodeChat.cliPath` to the absolute path of the binary, or accept the
+offer the section shows with the exact command it will run.
+
+**The screen looks corrupted or frozen on Windows.**
+Turn off `opencodeChat.useConptyDll` and relaunch.
+
 ## How it works
 
 ```
@@ -286,7 +326,12 @@ UsageStatus ── fetch ──► https://opencode.ai/zen/go/v1/usage
 
 Fallback key from `SecretStorage` is tried only if the CLI yields none.
 
-## Tests
+## Development
+
+For contributors: the test suite, and the one asset that is generated rather than
+hand-edited.
+
+### Tests
 
 ```
 npm test
@@ -350,24 +395,6 @@ WOFF. The two libraries it needs (`opentype.js`, `ttf2woff`) are
 devDependencies, used only when the icon changes, and both are excluded from
 the VSIX — nobody installing the extension downloads them.
 
-## Troubleshooting
-
-**The section does not appear.**
-Check View → Output → “OpenCode Chat”. The section lives inside the Chat
-container; if Copilot Chat has not registered its container yet, placement is
-deferred to the next start.
-
-**The section is in the wrong place.**
-Run `OpenCode: Reestablecer posición del chat`. If it reports that it could not
-reorder, the Output channel records exactly which step failed.
-
-**“opencode not found”.**
-Set `opencodeChat.cliPath` to the absolute path of the binary, or accept the
-offer the section shows with the exact command it will run.
-
-**The screen looks corrupted or frozen on Windows.**
-Turn off `opencodeChat.useConptyDll` and relaunch.
-
 ## Compatibility
 
 This extension is an **alternative**, not a replacement. It does not compete with
@@ -389,7 +416,7 @@ not modified, only executed.
 
 ## License
 
-[MIT](./LICENSE) © JosueRZS.
+[MIT](./LICENSE) © Josue RZS.
 
 **The MIT licence covers this project's source code only.** It grants no rights
 over any third-party trademark, logo or brand asset — including
@@ -399,25 +426,12 @@ is used nominatively. See
 
 ### Attribution
 
-The pattern of hosting the OpenCode CLI in a terminal section, and the general
-approach to the extension host side of the problem, were taken from the official
-OpenCode extension for VS Code —
-[`anomalyco/opencode/sdks/vscode`](https://github.com/anomalyco/opencode/tree/dev/sdks/vscode),
-released under the MIT License.
-
-That project is the work of the OpenCode authors. This repository is not, and is
-not intended to become, part of it.
-
-## Documentation
-
-| Document | What it answers |
-| --- | --- |
-| [DISCLAIMER.md](./DISCLAIMER.md) | Affiliation, trademarks, brand assets, warranty, support |
-| [PRIVACY.md](./PRIVACY.md) | What leaves your machine, where it goes, and what never does |
-| [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md) | Every redistributed component and its licence, verbatim |
-| [CHANGELOG.md](./CHANGELOG.md) | What changed, and when |
-| [tests/README.md](./tests/README.md) | How the suite works, and what it deliberately does not cover |
-| [LICENSE](./LICENSE) | MIT — the terms you get this under |
+The approach to the extension host side of this problem was taken from the
+official OpenCode extension for VS Code,
+[`anomalyco/opencode/sdks/vscode`](https://github.com/anomalyco/opencode/tree/dev/sdks/vscode)
+(MIT). It is the work of the OpenCode authors, and this repository is not part of
+it. The full notice is in
+[THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md#attribution).
 
 ## Credits
 

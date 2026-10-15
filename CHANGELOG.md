@@ -1,4 +1,4 @@
-# Change Log
+# Changelog
 
 Notable changes to the **OpenCode Chat Section** extension.
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and

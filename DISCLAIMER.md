@@ -95,4 +95,6 @@ property of its authors.
 ## 8. Reporting a problem with this notice
 
 If you hold rights to something referenced here and believe this repository uses
-it incorrectly, open an issue in this repository. It will be addressed.
+it incorrectly,
+[open an issue](https://github.com/JosueRZS/opencode-chat-section/issues). It will
+be addressed.

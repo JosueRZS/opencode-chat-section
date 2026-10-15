@@ -7,12 +7,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/JosueRZS/Opencode-Chat-Section.git"
+    "url": "https://github.com/JosueRZS/opencode-chat-section.git"
   },
   "bugs": {
-    "url": "https://github.com/JosueRZS/Opencode-Chat-Section/issues"
+    "url": "https://github.com/JosueRZS/opencode-chat-section/issues"
   },
-  "homepage": "https://github.com/JosueRZS/Opencode-Chat-Section#readme",
+  "homepage": "https://github.com/JosueRZS/opencode-chat-section#readme",
   "engines": {
     "vscode": "^1.140.0"
   },
