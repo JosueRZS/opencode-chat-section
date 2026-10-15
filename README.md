@@ -1,6 +1,9 @@
-# OpenCode Chat (Side Bar)
+# OpenCode Chat Section
 
 **Runs the official OpenCode CLI inside a terminal section stacked right below Copilot Chat.**
+
+`JosueRZS.opencode-chat-section` · MIT · not affiliated with OpenCode or GitHub —
+see [DISCLAIMER.md](./DISCLAIMER.md)
 
 A single glance at the Secondary Side Bar: Copilot Chat on top, your OpenCode
 session underneath, in the same container, without tabs and without touching the
@@ -31,11 +34,13 @@ Everything the **terminal** does is:
 That is the complete list. There is no fourth step, and none of it touches the
 network.
 
-On top of that — and **entirely separate** — there is an optional **model usage
-indicator** in the status bar. It is the only part of this extension that makes
-a network request; it talks only to `opencode.ai`; and it does nothing at all,
-not even appearing on screen, until you save an API key for it. The terminal
-above never goes near it. See [Model usage indicator](#model-usage-indicator).
+On top of that — and **entirely separate** — there is a **model usage indicator**
+in the status bar. It is the only part of this extension that makes a network
+request: one `GET` to `opencode.ai`, authenticated with the credential your
+OpenCode CLI has already stored. There is nothing to configure and nothing to
+sign up for. Turn it off with `opencodeChat.usage.enabled`. The terminal above
+never goes near it. See [Model usage indicator](#model-usage-indicator) and
+[PRIVACY.md](./PRIVACY.md).
 
 ### What this extension explicitly does **not** do
 
@@ -44,15 +49,41 @@ above never goes near it. See [Model usage indicator](#model-usage-indicator).
 | Reimplement or patch any OpenCode feature | All functionality belongs to the CLI |
 | Send anything over the network from the terminal | The TUI is a plain PTY: no HTTP, no stdout parsing |
 | Phone home, track you, or collect telemetry | The usage indicator is the only outbound request, and it only ever talks to `opencode.ai` |
-| Read your OpenCode configuration | — |
-| Write to `~/.config/opencode/cli.json` | Per-session settings are injected as an environment variable **into this extension's own child process only** |
+| Touch your OpenCode configuration | Your config files are never opened or rewritten. Per-session settings travel as an environment variable handed to this extension's own child process. The only thing read from the CLI is the credential it already stores, through `opencode auth export` |
 | Ship, bundle or download the `opencode` binary | You install it yourself (or let the helper do it) |
 | Create, move or reuse a VS Code terminal | Your bottom-panel shell is left untouched |
 | Issue a command against any view other than its own | Restoring the section's position rewrites its own saved order and touches nothing else — see below |
 | Collect, store or transmit any data | There is no backend to collect it to |
 
+### Trademarks
+
+*OpenCode* and the OpenCode logo are trademarks of their respective owners.
+*Visual Studio Code*, *GitHub* and *GitHub Copilot* are trademarks of Microsoft
+Corporation. They are used in this repository **descriptively and nominatively** —
+only to say what this software works with — and their use here does not imply any
+endorsement, sponsorship, partnership or affiliation. No trademark rights are
+granted by the [MIT licence](./LICENSE) that covers this project's source code.
+To read the complete legal notice, see [DISCLAIMER.md](./DISCLAIMER.md).
+
 If you want new OpenCode features, model support, agents, authentication or
 billing, those come from the CLI itself — not from here.
+
+---
+
+## Data, network and credentials
+
+The complete list. There is no third item.
+
+| | |
+| --- | --- |
+| **Network** | One `GET https://opencode.ai/zen/go/v1/usage`, at most once every 15 minutes, with a 15-second timeout. Nothing else in this extension opens a socket. |
+| **Credential** | Read from your own machine by running `opencode auth export`, the CLI's own read-only command. Sent as `Authorization: Bearer` to `opencode.ai`, and to nowhere else. |
+| **Stored locally** | The fallback key — only if you set one — in VS Code's SecretStorage. Never in `settings.json`. |
+| **Never leaves your machine** | Your code, your prompts, your files, the contents of the terminal, and every OpenCode setting. |
+| **Telemetry** | None. Not even anonymous usage counts. |
+
+The full statement, including what is *not* collected and why, is in
+[PRIVACY.md](./PRIVACY.md).
 
 ---
 
@@ -82,17 +113,26 @@ billing, those come from the CLI itself — not from here.
 
 ## Install
 
-From the Marketplace:
-
-```
-ext install JosueRZS.opencode-vscode-chat
-```
-
-Or from a local `.vsix`:
+There is **no Marketplace listing yet** — publishing is on hold — so the
+supported route today is the packaged `.vsix`:
 
 ```powershell
-code --install-extension .\opencode-vscode-chat-0.0.1.vsix
+code --install-extension .\opencode-chat-section-0.0.1.vsix
 ```
+
+Or from the Extensions view: `⋯` → **Install from VSIX…**
+
+Building it from source, if you would rather:
+
+```bash
+npm install
+npm run build
+npx vsce package
+```
+
+Note that VS Code disables **auto-update** for extensions installed from a
+VSIX — you install each new version by hand. Once a listing exists, the usual
+`ext install JosueRZS.opencode-chat-section` will apply.
 
 ## Commands
 
@@ -118,8 +158,7 @@ OpenCode extension. **Both extensions can be installed side by side.**
 | --- | --- | --- |
 | `opencodeChat.cliPath` | `opencode` | Path to the binary. Empty = search `PATH` |
 | `opencodeChat.terminalCwd` | `${workspaceFolder}` | Working directory. Supports `${workspaceFolder}` and `~` |
-| `opencodeChat.autoLaunch` | `true` | Start OpenCode when the section opens |
-| `opencodeChat.focusOnLaunch` | `true` | Focus the section when launching |
+| `opencodeChat.autoLaunch` | `true` | Start OpenCode the first time the section opens |
 | `opencodeChat.tuiTabs` | `off` | Session tab strip of the TUI — applied to **this** terminal only |
 | `opencodeChat.useConptyDll` | `true` | Use the `conpty.dll` shipped with `node-pty` |
 | `opencodeChat.ptySpawnTimeout` | `10000` | ms before the PTY is considered blocked |
@@ -202,6 +241,19 @@ $TMPDIR/opencode-chat/opencode-chat.log     (macOS / Linux)
 It exists because the Output channel lives inside the extension host: if the host
 hangs, its last lines are lost. The file survives.
 
+## What it writes on your machine
+
+The list is short, and it is the whole list.
+
+| Where | What | Why |
+| --- | --- | --- |
+| `<temp>/opencode-chat/opencode-chat.log` | Plain-text log, appended | So the last lines survive a hung extension host — see [Diagnostics](#diagnostics) |
+| VS Code SecretStorage | Your fallback usage key — only if you set one | Encrypted by VS Code's own credential store. Never written to `settings.json` |
+| VS Code global state | Bookkeeping about where the section was placed | So it is moved into the Chat container once, and not on every start |
+| Your `settings.json` | Only what you change yourself | Ordinary `opencodeChat.*` settings |
+
+Nothing else is created, and **no file belonging to OpenCode is ever modified**.
+
 ## How it works
 
 ```
@@ -244,6 +296,11 @@ Unit tests over the logic that can be checked without a running editor: shell
 resolution, composer sanitisation, terminal style defaults, the diagnostic file
 log, the usage API contract, and the manifest itself. They compile `src/` with
 `tsc` and run on Node's own test runner — no extra dependencies.
+
+136 tests in 9 files. None of them touches the network, and the whole suite
+finishes in about a second. **[tests/README.md](./tests/README.md)** documents the
+harness: how the `vscode` stub works, what each suite locks down, how to run a
+single file, and how to add a test.
 
 `vscode` does not exist outside the extension host, so `tests/register.ts`
 redirects `require("vscode")` to a stub (`tests/support/vscode.ts`) that returns
@@ -319,16 +376,26 @@ keybindings or configuration with it. Installing both is fine and supported.
 
 ## Third-party components
 
-This extension redistributes the following, each under its own license — see
+This extension redistributes the following, each under its own licence, with the
+licence text reproduced verbatim in
 [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md):
 
 - **node-pty** — MIT — pseudo-terminal bindings
-- **xterm.js**, **xterm-addon-fit**, **xterm-addon-webgl** — MIT — terminal
+- **xterm.js**, **@xterm/addon-fit**, **@xterm/addon-webgl** — MIT — terminal
   rendering
+
+OpenCode itself is **not** redistributed: it is not bundled, not downloaded and
+not modified, only executed.
 
 ## License
 
 [MIT](./LICENSE) © JosueRZS.
+
+**The MIT licence covers this project's source code only.** It grants no rights
+over any third-party trademark, logo or brand asset — including
+`resources/opencode-icons.woff`, which is generated from OpenCode's own logo and
+is used nominatively. See
+[DISCLAIMER.md](./DISCLAIMER.md#2-trademarks-and-brand-assets).
 
 ### Attribution
 
@@ -340,6 +407,17 @@ released under the MIT License.
 
 That project is the work of the OpenCode authors. This repository is not, and is
 not intended to become, part of it.
+
+## Documentation
+
+| Document | What it answers |
+| --- | --- |
+| [DISCLAIMER.md](./DISCLAIMER.md) | Affiliation, trademarks, brand assets, warranty, support |
+| [PRIVACY.md](./PRIVACY.md) | What leaves your machine, where it goes, and what never does |
+| [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md) | Every redistributed component and its licence, verbatim |
+| [CHANGELOG.md](./CHANGELOG.md) | What changed, and when |
+| [tests/README.md](./tests/README.md) | How the suite works, and what it deliberately does not cover |
+| [LICENSE](./LICENSE) | MIT — the terms you get this under |
 
 ## Credits
 
