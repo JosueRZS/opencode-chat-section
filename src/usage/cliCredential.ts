@@ -98,7 +98,7 @@ export function parseAuthExport(stdout: string): string | undefined {
 export function readCliCredential(cliPath: string): Promise<string | undefined> {
   return new Promise(resolve => {
     const done = (error: Error | null, stdout: string): void => {
-      // Un fallo aquí no se propaga: `usageStatus` degradará a la clave manual.
+      // Un fallo aquí no se propaga: `usageStatus` simplemente no pinta el indicador.
       resolve(error ? undefined : parseAuthExport(stdout));
     };
 

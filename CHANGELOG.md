@@ -34,8 +34,8 @@ First release. Not published to the Marketplace; install from a `.vsix` — see 
   windows as percentages, with a breakdown and an exact reset countdown on hover.
   A rate-limited window takes the warning background.
 - **No setup.** The credential is the one the OpenCode CLI already stores, read
-  with `opencode auth export`; a manually stored key in `SecretStorage` exists
-  only as a fallback.
+  with `opencode auth export`. The extension keeps no key of its own: without a
+  CLI credential the indicator simply does not appear.
 - It is the only outbound request this extension makes: one `GET` to
   `https://opencode.ai/zen/go/v1/usage`, with a 15-second timeout. See
   [PRIVACY.md](./PRIVACY.md).
@@ -79,9 +79,7 @@ First release. Not published to the Marketplace; install from a `.vsix` — see 
 | `OpenCode: Mostrar/ocultar` | `Ctrl+Alt+K` |
 | `OpenCode: Ver canal de Salida` | — |
 | `OpenCode: Reestablecer posición del chat` | — |
-| `OpenCode: Establecer la clave de API de uso (respaldo)` | — |
 | `OpenCode: Actualizar el uso` | — |
-| `OpenCode: Borrar la clave de API de uso` | — |
 
 Keybindings are chosen to avoid colliding with the official OpenCode extension;
 both can be installed side by side.

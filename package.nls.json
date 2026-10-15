@@ -6,8 +6,6 @@
   "commands.showOutput.title": "OpenCode: Show Output",
   "commands.toggle.title": "OpenCode: Toggle Chat + OpenCode",
   "commands.restorePosition.title": "OpenCode: Restore Position Below Chat",
-  "commands.usageSetApiKey.title": "OpenCode: Set Usage API Key (fallback)",
-  "commands.usageClearApiKey.title": "OpenCode: Clear Usage API Key",
   "commands.usageRefresh.title": "OpenCode: Refresh Usage",
   "config.title": "OpenCode Chat",
   "config.cliPath.description": "Path to the OpenCode binary. Leave empty to search the PATH.",
@@ -19,6 +17,6 @@
   "config.ptySpawnTimeout.description": "Milliseconds to wait for node-pty to confirm the spawn before treating the PTY as blocked.",
   "config.autoPromptInstall.description": "If `opencode` is not found on the PATH, ask whether to install it. The question is shown inside the section itself, not in a dialog, and the section opens either way — the helper is a convenience, not a gate.",
   "config.installMethod.description": "How to install OpenCode v2. `auto` (default) detects which package manager is available and runs its official command: `npm install -g @opencode/cli`, `bun install -g --trust @opencode/cli`, `pnpm add -g --allow-build=@opencode/cli @opencode/cli` or `yarn global add @opencode/cli`. `script` runs `curl -fsSL https://opencode.ai/v2/install | bash` (POSIX only). The exact command is shown in the section before anything runs.",
-  "config.usageEnabled.description": "Show the model usage indicator in the status bar. It reuses the credential the OpenCode CLI already has stored, read with `opencode auth export`, so no setup is needed; only if the CLI has none does it fall back to the key set with OpenCode: Set Usage API Key. With neither available it does not appear and sends no request at all. The OpenCode TUI itself stays a plain PTY and never goes through this code path.",
+  "config.usageEnabled.description": "Show the model usage indicator in the status bar. It reuses the credential the OpenCode CLI already has stored, read with `opencode auth export`, so there is no setup and no key of its own to configure. If the CLI has none, the indicator does not appear and sends no request at all. The OpenCode TUI itself stays a plain PTY and never goes through this code path.",
   "config.usageInterval.description": "Minutes between usage refreshes. Values under 5 are raised to 5."
 }

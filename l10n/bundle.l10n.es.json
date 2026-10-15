@@ -20,9 +20,6 @@
   "exit code {0}": "código de salida {0}",
 
   "OpenCode usage": "Uso de OpenCode",
-  "Optional fallback: the key the OpenCode CLI already has is used first. Only set one if the CLI is unavailable.": "Respaldo opcional: primero se usa la clave que el propio CLI de OpenCode ya tiene. Solo pon una si el CLI no está disponible.",
-  "OpenCode: usage API key saved.": "OpenCode: clave de API de uso guardada.",
-  "OpenCode: usage API key cleared.": "OpenCode: clave de API de uso borrada.",
   "Window": "Ventana",
   "Used": "Usado",
   "Status": "Estado",
@@ -38,7 +35,7 @@
   "{0}h {1}m": "{0}h {1}m",
   "{0}d": "{0}d",
   "{0}d {1}h": "{0}d {1}h",
-  "OpenCode: the API key was rejected. Set a new one from the Command Palette.": "OpenCode: el servidor rechazó la clave de API. Establece otra desde la Paleta de comandos.",
+  "OpenCode: the credential stored by the CLI was rejected. Run `opencode auth login` again.": "OpenCode: el servidor rechazó la credencial guardada en el CLI. Vuelve a ejecutar `opencode auth login`.",
   "OpenCode: this account has no active subscription.": "OpenCode: esta cuenta no tiene suscripción activa.",
   "OpenCode: usage could not be fetched (network error).": "OpenCode: no se pudo obtener el uso (error de red).",
   "OpenCode: the usage response was not understood.": "OpenCode: no se entendió la respuesta de uso."

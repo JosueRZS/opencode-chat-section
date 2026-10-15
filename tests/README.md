@@ -155,6 +155,9 @@ The paths the suite cannot reach, checked with the Extension Development Host
   section**, `Sí` installs it, and `Launch` does not ask again.
 - After `/exit`, the section returns to the Launch button.
 - `$(opencode-logo)` renders as the logo in the status bar, not as literal text.
+- With `opencodeChat.cliPath` pointing at a binary that does not exist, the usage
+  indicator disappears and the Output records that no credential was found;
+  pointing it back makes the item return.
 
 Regressions already pinned by a test are listed in the
 [main README](../README.md#tests), next to the story of what each one broke.

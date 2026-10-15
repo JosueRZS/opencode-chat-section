@@ -95,15 +95,6 @@
         "title": "%commands.restorePosition.title%"
       },
       {
-        "command": "opencodeChat.usage.setApiKey",
-        "title": "%commands.usageSetApiKey.title%",
-        "icon": "$(key)"
-      },
-      {
-        "command": "opencodeChat.usage.clearApiKey",
-        "title": "%commands.usageClearApiKey.title%"
-      },
-      {
         "command": "opencodeChat.usage.refresh",
         "title": "%commands.usageRefresh.title%",
         "icon": "$(refresh)"

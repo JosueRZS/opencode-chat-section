@@ -36,8 +36,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // --- Indicador de cuota de modelos (barra de estado) ---
   // Aparte del TUI: solo esta clase habla con la red, y no lo hace en absoluto
-  // mientras no haya clave guardada. Ver `UsageStatus`.
-  const usage = new UsageStatus(context.secrets, output);
+  // mientras el CLI no tenga una credencial que ofrecer. Ver `UsageStatus`.
+  const usage = new UsageStatus(output);
   context.subscriptions.push(usage);
 
   // --- Sección "OpenCode" dentro del contenedor de Chat (D7 rev.4/rev.5) ---
@@ -133,9 +133,7 @@ export function activate(context: vscode.ExtensionContext): void {
       // contenedor: reescribir el modelo sí es inmediato, pintarlo no (P-043).
       void vscode.window.showInformationMessage(vscode.l10n.t("OpenCode: position restored. If you had dragged the section, reload the window to see the new order."));
     }),
-    // --- Cuota de modelos: respaldo manual, refresco y borrado ---
-    vscode.commands.registerCommand("opencodeChat.usage.setApiKey", () => usage.setApiKey()),
-    vscode.commands.registerCommand("opencodeChat.usage.clearApiKey", () => usage.clearApiKey()),
+    // --- Cuota de modelos: refresco. La credencial es la del CLI, y solo esa ---
     // El refresco explícito descarta también la memoización del CLI, así que
     // «Actualizar» vuelve a leer la credencial y no solo la cuota.
     vscode.commands.registerCommand("opencodeChat.usage.refresh", () => {

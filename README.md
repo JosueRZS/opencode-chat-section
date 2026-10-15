@@ -2,9 +2,6 @@
 
 **Runs the official OpenCode CLI inside a terminal section stacked right below Copilot Chat.**
 
-`JosueRZS.opencode-chat-section` · MIT · not affiliated with OpenCode or GitHub —
-see [DISCLAIMER.md](./DISCLAIMER.md)
-
 A single glance at the Secondary Side Bar: Copilot Chat on top, your OpenCode
 session underneath, in the same container, without tabs and without touching the
 rest of your layout.
@@ -94,13 +91,13 @@ billing, those come from the CLI itself — not from here.
 
 ## Data, network and credentials
 
-The complete list. There is no third item.
+The complete list, and it is deliberately short.
 
 | | |
 | --- | --- |
 | **Network** | One `GET https://opencode.ai/zen/go/v1/usage`, at most once every 15 minutes, with a 15-second timeout. Nothing else in this extension opens a socket. |
 | **Credential** | Read from your own machine by running `opencode auth export`, the CLI's own read-only command. Sent as `Authorization: Bearer` to `opencode.ai`, and to nowhere else. |
-| **Stored locally** | The fallback key — only if you set one — in VS Code's SecretStorage. Never in `settings.json`. |
+| **Stored locally** | No key, no credential, no state of your own. The credential stays where the CLI put it. |
 | **Never leaves your machine** | Your code, your prompts, your files, the contents of the terminal, and every OpenCode setting. |
 | **Telemetry** | None. Not even anonymous usage counts. |
 
@@ -167,9 +164,7 @@ VSIX — you install each new version by hand. Once a listing exists, plain
 | `OpenCode: Mostrar/ocultar` | `Ctrl+Alt+K` | Toggles Chat + OpenCode together |
 | `OpenCode: Ver canal de Salida` | — | Shows the Output channel |
 | `OpenCode: Reestablecer posición del chat` | - | Restores the section's saved position below Chat. If it had been dragged, the new order applies after a window reload |
-| `OpenCode: Establecer la clave de API de uso (respaldo)` | — | Stores a fallback key for when the CLI has none — normally unnecessary |
-| `OpenCode: Actualizar el uso` | — | Re-reads the credential and refreshes the indicator |
-| `OpenCode: Borrar la clave de API de uso` | — | Forgets the fallback key |
+| `OpenCode: Actualizar el uso` | — | Re-reads the CLI credential and refreshes the indicator |
 
 Keybindings are deliberately chosen to avoid colliding with the official
 OpenCode extension. **Both extensions can be installed side by side.**
@@ -217,18 +212,15 @@ reads the credential the OpenCode CLI already has stored, by running
 credentials. If you are already logged into OpenCode, the indicator simply
 works.
 
-Where the credential comes from, in order:
+There is exactly one source, and it is not ours:
 
-1. **The CLI's stored credential** (`opencode auth export`) — the normal path,
-   and the one that requires nothing from you.
-2. **A manually stored key** — only if the CLI yields none: not installed, not
-   authenticated, or `cliPath` pointing somewhere unusable. Set one with
-   `OpenCode: Establecer la clave de API de uso (respaldo)`; it lives in the VS
-   Code secret store, never in `settings.json`.
-3. **Nothing** → the indicator does not appear and no request is made.
-
-Which source is in use is written to the Output channel on every refresh, so
-there is never any doubt about which key is talking.
+- **The CLI's stored credential** (`opencode auth export`) — the only path, and
+  the one that requires nothing from you. The extension keeps no key of its own
+  and never writes one: `opencode auth login` is the only way to give it a
+  credential, and that is the CLI's own command, not a setting here.
+- **Nothing** — not installed, not authenticated, or `cliPath` pointing
+  somewhere unusable → the indicator does not appear and no request is made. The
+  Output channel records that case.
 
 What it is and is not:
 
@@ -270,7 +262,6 @@ The list is short, and it is the whole list.
 | Where | What | Why |
 | --- | --- | --- |
 | `<temp>/opencode-chat/opencode-chat.log` | Plain-text log, appended | So the last lines survive a hung extension host — see [Diagnostics](#diagnostics) |
-| VS Code SecretStorage | Your fallback usage key — only if you set one | Encrypted by VS Code's own credential store. Never written to `settings.json` |
 | VS Code global state | Bookkeeping about where the section was placed | So it is moved into the Chat container once, and not on every start |
 | Your `settings.json` | Only what you change yourself | Ordinary `opencodeChat.*` settings |
 
@@ -290,6 +281,11 @@ reorder, the Output channel records exactly which step failed.
 **“opencode not found”.**
 Set `opencodeChat.cliPath` to the absolute path of the binary, or accept the
 offer the section shows with the exact command it will run.
+
+**The usage indicator does not appear.**
+It is waiting for the CLI to have a credential, because it has nothing of its own
+to fall back on. Run `opencode auth login` once, then `OpenCode: Actualizar el
+uso`. The Output channel records when no credential was found.
 
 **The screen looks corrupted or frozen on Windows.**
 Turn off `opencodeChat.useConptyDll` and relaunch.
@@ -324,7 +320,8 @@ UsageStatus ── fetch ──► https://opencode.ai/zen/go/v1/usage
      └── status bar ◄─────────┘  aborts after 15 s
 ```
 
-Fallback key from `SecretStorage` is tried only if the CLI yields none.
+The credential is the CLI's own. The extension never stores one, and there is no
+second source to fall back on.
 
 ## Development
 

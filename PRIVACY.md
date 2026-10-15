@@ -1,8 +1,9 @@
 # Privacy
 
 **Short version:** this extension has no backend, no telemetry and no analytics.
-It makes exactly one kind of outbound request — a read-only quota lookup against
-`opencode.ai` — and you can switch that off with a single setting.
+It stores no credential of its own — the one it uses belongs to the OpenCode CLI
+— and it makes exactly one kind of outbound request, a read-only quota lookup
+against `opencode.ai`, which you can switch off with a single setting.
 
 Applies to version 0.0.1. Last reviewed 2026-10-15.
 
@@ -41,13 +42,9 @@ held by the running OpenCode service; reading it would mean bundling a SQLite
 driver and depending on an undocumented schema.
 
 **The value is never written to `settings.json`, never logged and never
-displayed.** The log records *which source* a key came from — CLI or fallback —
-never the key itself.
-
-If you would rather not rely on the CLI, you can store a key yourself with
-`OpenCode: Establecer la clave de API de uso (respaldo)`. It goes into VS Code's
-`SecretStorage`, the editor's own credential store, and is used only when the CLI
-yields nothing.
+displayed.** There is no manual key, no fallback and no second source: the
+extension stores no secret of its own at all, because the one that exists belongs
+to the CLI and stays there.
 
 ## What is not collected
 
@@ -65,7 +62,6 @@ yields nothing.
 | Where | What | Removed by |
 | --- | --- | --- |
 | `<temp>/opencode-chat/opencode-chat.log` | Diagnostics, plain text | Deleting the file |
-| VS Code `SecretStorage` | Fallback usage key, only if you set one | `OpenCode: Borrar la clave de API de uso` |
 | VS Code global state | Bookkeeping about where the section was placed | Uninstalling the extension |
 
 ## Third parties

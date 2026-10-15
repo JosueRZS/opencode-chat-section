@@ -18,21 +18,20 @@ import {
  * Es lo único de esta extensión que sale a la red. Tres salvaguardas, de la más
  * dura a la más blanda:
  *
- *   1. Sin ninguna fuente de credencial no se crea NADA — ni item, ni petición.
+ *   1. Sin credencial en el CLI no se crea NADA — ni item, ni petición.
  *   2. `opencodeChat.usage.enabled = false` detiene el temporizador y oculta.
  *   3. Cada llamada va con tiempo máximo: un servicio caído no puede dejar el
  *      temporizador acumulando peticiones.
  *
- * La credencial NO se pide al usuario: se lee la que el propio CLI ya tiene
- * guardada (`opencode auth export`). La clave manual de `SecretStorage` existe
- * solo como respaldo para cuando el CLI no está disponible.
+ * La credencial no se pide al usuario ni se guarda aquí: se lee la que el propio
+ * CLI ya tiene (`opencode auth export`). Esta extensión no configura OpenCode,
+ * usa lo que OpenCode ya tenga configurado; por eso no existe ninguna clave
+ * propia, ni comando capaz de escribir una. Sin credencial en el CLI el
+ * indicador simplemente no aparece, y no hay nada que rellenar para que lo haga.
  *
  * El README lo declara explícitamente: el TUI sigue siendo puro PTY, y esto es
  * un añadido aparte que solo habla con `opencode.ai`.
  */
-
-/** Respaldo manual. Casi nunca se usa: lo normal es que mande el CLI. */
-export const USAGE_SECRET_KEY = "opencode.usage.apiKey";
 
 /** El servicio responde, pero nunca se cuelga la extensión esperándole. */
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -46,14 +45,6 @@ const MIN_INTERVAL_MINUTES = 5;
  * `opencode auth login` hecho mientras la extensión estaba corriendo.
  */
 const CLI_CREDENTIAL_TTL_MS = 5 * 60_000;
-
-/** De dónde salió la clave que se está usando. Se registra para que nunca haya duda. */
-type CredentialSource = "cli" | "manual";
-
-interface Credential {
-  key: string;
-  source: CredentialSource;
-}
 
 interface LastSuccess {
   snapshot: UsageSnapshot;
@@ -70,7 +61,7 @@ export class UsageStatus implements vscode.Disposable {
   private last: LastSuccess | undefined;
   private inFlight = false;
   /**
-   * `SecretStorage.get` es asíncrono, así que comprobar la clave deja una
+   * Leer la credencial del CLI es asíncrono, así que comprobarla deja una
    * ventana en la que ya se puede haber dispensado. `refresh` la mira antes de
    * tocar el item.
    */
@@ -79,10 +70,7 @@ export class UsageStatus implements vscode.Disposable {
   /** Credencial del CLI memoizada; ver `CLI_CREDENTIAL_TTL_MS`. */
   private cliCredentialCache: { key: string | undefined; at: number } | undefined;
 
-  constructor(
-    private readonly secrets: vscode.SecretStorage,
-    private readonly output: vscode.OutputChannel,
-  ) {
+  constructor(private readonly output: vscode.OutputChannel) {
     this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 98);
     // El nombre es lo que lee un lector de pantalla; va en el mismo idioma que
     // el resto de textos visibles.
@@ -122,10 +110,12 @@ export class UsageStatus implements vscode.Disposable {
 
   private async start(intervalMinutes: number): Promise<void> {
     this.stop();
-    // Sin ninguna fuente de credencial no hay nada que refrescar y no se crea
-    // ni un item: el indicador no aparece, no aparece vacío, y sobre todo no se
-    // hace ninguna petición.
-    if (!(await this.hasCredential())) {
+    // Sin credencial en el CLI no hay nada que refrescar y no se crea ni un
+    // item: el indicador no aparece, no aparece vacío, y sobre todo no se hace
+    // ninguna petición. La credencial es del CLI, así que aquí no hay nada que
+    // rellenar: se arregla con `opencode auth login`, no con un ajuste nuestro.
+    if ((await this.cliCredential()) === undefined) {
+      this.output.appendLine("[usage] el CLI no tiene credencial: el indicador queda oculto");
       return;
     }
     this.item.show();
@@ -136,53 +126,23 @@ export class UsageStatus implements vscode.Disposable {
     this.timer = setInterval(() => void this.refresh(), intervalMinutes * 60_000);
   }
 
-  private async hasCredential(): Promise<boolean> {
-    if (await this.secrets.get(USAGE_SECRET_KEY)) {
-      return true;
-    }
-    return (await this.credential("cli")) !== undefined;
-  }
-
   /**
-   * Lee la credencial del CLI, memoizada.
+   * Credencial del CLI, memoizada. Única fuente posible.
    *
    * No se propaga ningún error: si el CLI no está instalado, no está
-   * autenticado o la ruta es insegura para el shell, devuelve `undefined` y la
-   * cadena de fuentes sigue con la clave manual.
+   * autenticado o la ruta es insegura para el shell, devuelve `undefined` y el
+   * indicador no se pinta.
    */
-  private async credential(source: CredentialSource, force = false): Promise<Credential | undefined> {
-    if (source === "manual") {
-      const key = await this.secrets.get(USAGE_SECRET_KEY);
-      return key ? { key, source } : undefined;
-    }
-
+  private async cliCredential(): Promise<string | undefined> {
     const cliPath =
       vscode.workspace.getConfiguration("opencodeChat").get<string>("cliPath", "opencode") || "opencode";
     const cached = this.cliCredentialCache;
-    if (!force && cached && Date.now() - cached.at < CLI_CREDENTIAL_TTL_MS) {
-      return cached.key ? { key: cached.key, source } : undefined;
+    if (cached && Date.now() - cached.at < CLI_CREDENTIAL_TTL_MS) {
+      return cached.key;
     }
     const key = await readCliCredential(cliPath);
     this.cliCredentialCache = { key, at: Date.now() };
-    return key ? { key, source } : undefined;
-  }
-
-  /**
-   * Fuentes en orden: primero la del CLI —que es la que el usuario quiere que
-   * mande y la que evita reconfigurar nada— y después la clave manual, que solo
-   * importa cuando el CLI no aporta ninguna.
-   */
-  private async credentialCandidates(): Promise<Credential[]> {
-    const candidates: Credential[] = [];
-    const cli = await this.credential("cli");
-    if (cli) {
-      candidates.push(cli);
-    }
-    const manual = await this.credential("manual");
-    if (manual && manual.key !== cli?.key) {
-      candidates.push(manual);
-    }
-    return candidates;
+    return key;
   }
 
   /** Descarta la memoización: lo pide el refresco explícito del usuario. */
@@ -198,40 +158,6 @@ export class UsageStatus implements vscode.Disposable {
     this.item.hide();
   }
 
-  /**
-   * Guarda la clave de RESPALDO. Casi nunca hace falta: el CLI ya aporta la suya
-   * y esa manda. Solo se usa cuando el CLI no está disponible.
-   */
-  async setApiKey(): Promise<void> {
-    const value = await vscode.window.showInputBox({
-      prompt: vscode.l10n.t("Optional fallback: the key the OpenCode CLI already has is used first. Only set one if the CLI is unavailable."),
-      password: true,
-      ignoreFocusOut: true,
-    });
-    if (value === undefined) {
-      return;
-    }
-    const key = value.trim();
-    if (key.length === 0) {
-      await this.clearApiKey();
-      return;
-    }
-    await this.secrets.store(USAGE_SECRET_KEY, key);
-    this.output.appendLine(`[usage] clave de uso guardada (${key.length} caracteres)`);
-    void vscode.window.showInformationMessage(vscode.l10n.t("OpenCode: usage API key saved."));
-    this.applySettings();
-    await this.refresh();
-  }
-
-  /** Borra la clave y retira el indicador de la barra. */
-  async clearApiKey(): Promise<void> {
-    await this.secrets.delete(USAGE_SECRET_KEY);
-    this.last = undefined;
-    this.output.appendLine("[usage] clave de uso borrada");
-    void vscode.window.showInformationMessage(vscode.l10n.t("OpenCode: usage API key cleared."));
-    this.applySettings();
-  }
-
   /** Descarga la cuota y la pinta. Seguro de llamar aunque ya haya una en vuelo. */
   async refresh(): Promise<void> {
     if (this.inFlight || this.disposed) {
@@ -239,31 +165,18 @@ export class UsageStatus implements vscode.Disposable {
     }
     this.inFlight = true;
     try {
-      const candidates = await this.credentialCandidates();
+      const key = await this.cliCredential();
       // Dispuesto mientras se esperaba la credencial: el item ya no existe.
       if (this.disposed) {
         return;
       }
-      if (candidates.length === 0) {
+      if (key === undefined) {
         this.item.hide();
         return;
       }
 
-      // Se prueban en orden hasta que una dé dato. Un fallo de red o de parseo
-      // corta la cadena: no lo arregla otra clave, y repetir solo alargaría.
-      let outcome: FetchOutcome | undefined;
-      let used: CredentialSource | undefined;
-      for (const candidate of candidates) {
-        outcome = await this.fetchUsage(candidate.key);
-        if (outcome.ok) {
-          used = candidate.source;
-          break;
-        }
-        if (outcome.reason === "network" || outcome.reason === "invalid") {
-          break;
-        }
-      }
-      if (this.disposed || !outcome) {
+      const outcome = await this.fetchUsage(key);
+      if (this.disposed) {
         return;
       }
 
@@ -272,10 +185,8 @@ export class UsageStatus implements vscode.Disposable {
         this.last = { snapshot, at: new Date() };
         this.paint(snapshot, isLimited(snapshot));
         this.item.tooltip = this.buildTooltip(snapshot);
-        // La fuente se registra a propósito: si el CLI y la clave manual
-        // difieren, hace falta saber cuál está mandando.
         this.output.appendLine(
-          `[usage] credencial ${used} | ${WINDOW_ORDER.map(k => `${k} ${snapshot[k].percent}%`).join(", ")}`,
+          `[usage] credencial del CLI | ${WINDOW_ORDER.map(k => `${k} ${snapshot[k].percent}%`).join(", ")}`,
         );
         return;
       }
@@ -420,7 +331,7 @@ export class UsageStatus implements vscode.Disposable {
 
   private reasonText(reason: UsageFailure): string {
     if (reason === "unauthorized") {
-      return vscode.l10n.t("OpenCode: the API key was rejected. Set a new one from the Command Palette.");
+      return vscode.l10n.t("OpenCode: the credential stored by the CLI was rejected. Run `opencode auth login` again.");
     }
     if (reason === "no-subscription") {
       return vscode.l10n.t("OpenCode: this account has no active subscription.");
