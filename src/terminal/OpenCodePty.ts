@@ -570,6 +570,10 @@ export class OpenCodePty implements vscode.Disposable {
       this.repaintTimer = undefined;
       if (this.running && this.lastSize) {
         this.client.resize(this.lastSize.cols, this.lastSize.rows);
+        // Medir la maniobra: si la TUI contesta con un cuadro entero, el búfer
+        // vuelve a tener lo que repintar; si no contesta, el problema está en la
+        // TUI y no en el cliente de terminal.
+        this.probeResize(`redibujado forzado ${cols}x${rows}`);
       }
     }, 80);
     this.trace("[pty]", `redibujado forzado: ${cols}x${rows + 1} -> ${cols}x${rows}`);
