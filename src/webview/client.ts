@@ -225,10 +225,18 @@ function reportSize(): void {
   if (!sectionVisible) {
     return;
   }
+  // Señal LOCAL, sin esperar al host. El `visibility` recorre el extension host
+  // y llega tarde, pero el ResizeObserver dispara en el MISMO tick en que VS
+  // Code colapsa el contenedor: si se mide ahí, `fit` propone 1 fila y esa 1
+  // fila se manda a ConPTY. Contenedor a 0 es «no hay nada que medir».
+  const box = termEl.getBoundingClientRect();
+  if (box.width === 0 || box.height === 0) {
+    return;
+  }
   try {
     fit.fit();
   } catch {
-    /* el contenedor puede estar oculto (0x0) */
+    /* por si acaso: el adaptador puede negarse con el elemento no adjunto */
   }
   // Con tamaño real ya se puede cargar WebGL (necesita dims > 0).
   enableWebgl();

@@ -88,6 +88,17 @@ export class OpenCodePty implements vscode.Disposable {
   private firstDataTimer: ReturnType<typeof setTimeout> | undefined;
   /** Comando a tecleear en el shell en cuanto la PTY confirme el arranque. */
   private pendingCommand = "";
+  /**
+   * Último tamaño que pidió el webview. Es DURADERO entre lanzamientos: en el
+   * arranque el webview manda su tamaño en el primer pase, casi siempre ANTES
+   * de que el hijo exista (la webview responde a `ready` antes de que ConPTY
+   * monte la consola). Si ese aviso se descartara, la PTY nacería con el 80x24
+   * provisional y el TUI se maquetaría para 80 columnas dentro de una xterm de
+   * 56: texto cortado, los restos de cada línea en la línea siguiente y hueco
+   * negro al pie. Persistirlo aquí también cubre el segundo lanzamiento, donde
+   * el tamaño no cambia y el cliente, por deduplicación, ya no lo repite.
+   */
+  private lastSize: { cols: number; rows: number } | undefined;
 
   /**
    * P-033 — Detección del fin de sesión por **alternate screen**, no por texto.
@@ -290,8 +301,12 @@ export class OpenCodePty implements vscode.Disposable {
         // `envWithPath()` da el PATH (P-001); `opencodeTuiEnv()` añade el override
         // de la TUI solo para esta terminal (P-030).
         env: { ...envWithPath(), ...opencodeTuiEnv() },
-        cols: 80,
-        rows: 24,
+        // Con el tamaño que el webview haya informado, si ya lo hizo. El 80x24
+        // sólo queda como valor mientras no hay nadie que haya medido nada: el
+        // TUI lee la ventana al arrancar y una geometría provisional de ahí en
+        // adelante es geometría equivocada.
+        cols: this.lastSize?.cols ?? 80,
+        rows: this.lastSize?.rows ?? 24,
         useConpty: process.platform === "win32",
         useConptyDll,
       },
@@ -315,6 +330,19 @@ export class OpenCodePty implements vscode.Disposable {
         this.setStatus("starting", `spawn correcto (pid ${pid}) pero la PTY aun no manda salida...`);
       }
     }, 3000);
+
+    // Reafirmar el tamaño ANTES de teclear. El TUI lee la ventana cuando arranca
+    // y ya no la vuelve a pedir, y ConPTY no siempre respeta la geometría del
+    // spawn: si aquí queda un 80x24, la interfaz se maqueta ancha en una xterm
+    // estrecha para el resto de la sesión (P-045). Es el único hueco en el que
+    // el aviso del webview pudo perderse, y aquí ya existe la PTY.
+    if (this.lastSize) {
+      this.client.resize(this.lastSize.cols, this.lastSize.rows);
+      this.trace(
+        "[pty]",
+        `tamanio confirmado en el spawn: ${this.lastSize.cols}x${this.lastSize.rows}`,
+      );
+    }
 
     this.writeCommand(this.pendingCommand);
     this.stateEmitter.fire();
@@ -464,11 +492,20 @@ export class OpenCodePty implements vscode.Disposable {
 
   /** El webview informa de su tamaño real → redimensionar la PTY. */
   resize(cols: number, rows: number): void {
-    // Se traza el valor pedido, no sólo el hecho de que hubo un resize. Un
-    // `resize` es inofensivo en sí; lo que distingue un ajuste normal de la
-    // terminal rota (P-045) es si vino de 110x34 a 1x1 o viceversa.
-    this.trace("[pty]", `resize pedido: ${cols}x${rows}`);
-    if (!this.running || cols <= 0 || rows <= 0) {
+    if (cols <= 0 || rows <= 0) {
+      return;
+    }
+    // Se recuerda SIEMPRE, viva o no la PTY (ver `lastSize`).
+    this.lastSize = { cols, rows };
+    // Se traza el valor pedido y si se aplicó de inmediato o quedó en espera.
+    // Lo que distingue un ajuste normal de la terminal rota (P-045) es esto:
+    // si en el arranque aparece «en espera» y después no viene ningún «aplicado»
+    // en el spawn, el TUI va a usar un tamaño que nadie le ha pasado.
+    this.trace(
+      "[pty]",
+      `resize pedido: ${cols}x${rows} :: ${this.running ? "aplicado" : "en espera: aun no existe la PTY"}`,
+    );
+    if (!this.running) {
       return;
     }
     this.client.resize(cols, rows);
