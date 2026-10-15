@@ -143,6 +143,11 @@ try {
 // Se carga DESPUÉS de `open()` y con tamaño > 0; si falla (GPU bloqueada en el
 // webview), se sigue con el DOM sin romper nada.
 let webglOn = false;
+/**
+ * Referencia al addon para poder vaciar su atlas de glifos al recuperar la
+ * sección: el atlas vive en la GPU y también se pierde con el canvas.
+ */
+let webglAddon: WebglAddon | undefined;
 function enableWebgl(): void {
   if (webglOn || term.cols <= 0 || term.rows <= 0) {
     return;
@@ -153,15 +158,48 @@ function enableWebgl(): void {
     // el addon y xterm sigue con el DOM.
     addon.onContextLoss(() => {
       addon.dispose();
+      webglAddon = undefined;
       webglOn = false;
       reportRenderer();
     });
     term.loadAddon(addon);
+    webglAddon = addon;
     webglOn = true;
   } catch {
     webglOn = false;
   }
   reportRenderer();
+}
+
+/**
+ * Repinta TODA la terminal, no sólo lo que xterm cree dañado.
+ *
+ * Hace falta porque el lienzo WebGL no sobrevive a que la sección se oculte:
+ * Chromium descarta el búfer del canvas en cuanto deja de componerse (el addon
+ * no usa `preserveDrawingBuffer`), y xterm no se entera — para él las filas
+ * siguen pintadas, así que sólo vuelve a pintar las que su propio seguimiento
+ * marca sucias. El único daño periódico es el parpadeo del cursor, y de ahí la
+ * firma de este fallo: la sección vuelve en negro con UNA sola línea viva,
+ * justo la del cursor. `refresh` de todo el viewport lo cura.
+ */
+function repaintAll(): void {
+  try {
+    term.refresh(0, Math.max(0, term.rows - 1));
+  } catch {
+    /* la terminal todavía no está lista */
+  }
+  webglAddon?.clearTextureAtlas();
+  // El informe lleva las dos medidas a propósito: si el lienzo y la rejilla no
+  // cuadran, el problema no es el repintado sino el ajuste, y eso se ve aquí
+  // sin tener que reproducirlo.
+  const box = termEl.getBoundingClientRect();
+  vscode.postMessage({
+    type: "repaint",
+    cols: term.cols,
+    rows: term.rows,
+    boxW: Math.round(box.width),
+    boxH: Math.round(box.height),
+  });
 }
 
 /**
@@ -260,6 +298,14 @@ const observer = new ResizeObserver(() => reportSize());
 observer.observe(termEl);
 // La barra puede reasentarse sin que `termEl` cambie de tamaño observable.
 window.addEventListener("resize", () => reportSize());
+// Segunda vía para el mismo problema: si el host no llega a mandar su `refit`
+// (o llega antes de que el navegador marque el documento como visible), el
+// propio navegador dice cuándo la sección vuelve a componerse.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    repaintAll();
+  }
+});
 
 // --- Estado de la sesión ---
 // P-028: la sección ES la terminal. El TUI está siempre visible; solo cambian
@@ -413,6 +459,10 @@ window.addEventListener("message", (e: MessageEvent) => {
       // `termEl` cambie de tamaño observable), así que la re-medida queda en
       // manos de este aviso, no de la suerte.
       reportSize();
+      // Y no basta con medir: con el mismo tamaño no hay `resize`, y sin
+      // `resize` xterm no repinta nada. El canvas vuelve en blanco y sólo se
+      // salva la fila del cursor. Ver `repaintAll`.
+      repaintAll();
       break;
   }
 });

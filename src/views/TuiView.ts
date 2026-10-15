@@ -14,6 +14,8 @@ type InMsg =
   | { type: "input"; data: string }
   | { type: "resize"; cols: number; rows: number }
   | { type: "renderer"; webgl: boolean }
+  /** El webview repintó todo el lienzo (ver `repaintAll`); sólo para el log. */
+  | { type: "repaint"; cols: number; rows: number; boxW: number; boxH: number }
   | { type: "launch" }
   | { type: "showOutput" }
   | { type: "installAnswer"; yes: boolean };
@@ -365,6 +367,14 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
             // disponible en un webview; conviene poder verlo, no suponerlo.
             this.trace(
               `[view] renderizador: ${msg.webgl ? "WebGL (igual que la terminal de VS Code)" : "DOM (WebGL no disponible en el webview)"}`,
+            );
+            break;
+          case "repaint":
+            // El webview recupera el lienzo por su cuenta. Se registran las dos
+            // medidas: si el lienzo y la rejilla de xterm no cuadran, el fallo
+            // no era el repintado sino el ajuste, y aquí se ve de un vistazo.
+            this.trace(
+              `[view] repintado completo :: xterm ${msg.cols}x${msg.rows} :: lienzo ${msg.boxW}x${msg.boxH} px`,
             );
             break;
           case "showOutput":
