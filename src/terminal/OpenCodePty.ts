@@ -86,6 +86,19 @@ export class OpenCodePty implements vscode.Disposable {
   private chainExit = true;
   /** P-027: si tras el spawn no llega ni un byte, decirlo (nunca un "cargando" mudo). */
   private firstDataTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * P-046 — Sonda de redibujado.
+   *
+   * Un cliente de terminal no puede repintar lo que la aplicación no ha
+   * dibujado: si al recuperar la sección la TUI no vuelve a emitir su cuadro,
+   * xterm sólo puede repintar lo que tenga en el búfer, y en el búfer estará lo
+   * último que la TUI escribió. Contar los bytes que llegan justo después de un
+   * resize separa las dos causas —«la TUI no redibuja» de «redibuja y no se
+   * ve»— sin tener que adivinar cuál de las dos es.
+   */
+  private resizeProbeTimer: ReturnType<typeof setTimeout> | undefined;
+  /** P-046: temporizador de la restauración de tamaño del redibujado forzado. */
+  private repaintTimer: ReturnType<typeof setTimeout> | undefined;
   /** Comando a tecleear en el shell en cuanto la PTY confirme el arranque. */
   private pendingCommand = "";
   /**
@@ -509,12 +522,71 @@ export class OpenCodePty implements vscode.Disposable {
       return;
     }
     this.client.resize(cols, rows);
+    this.probeResize(`${cols}x${rows}`);
+  }
+
+  /**
+   * Mide lo que la TUI escribe tras un resize (ver `resizeProbeTimer`).
+   *
+   * No mide si el resize "funcionó" —eso ya no está en duda— sino si la
+   * aplicación reacciona a él. Un cuadro completo de la TUI son miles de bytes
+   * con secuencias de posicionamiento; una cifra diminuta significa que el
+   * lienzo que hay que repintar no existe, y entonces el arreglo no está en el
+   * cliente de terminal.
+   */
+  private probeResize(label: string): void {
+    clearTimeout(this.resizeProbeTimer);
+    const base = this.totalBytes;
+    this.resizeProbeTimer = setTimeout(() => {
+      const llegados = this.totalBytes - base;
+      const veredicto =
+        llegados > 512 ? "la TUI redibujo" : "la TUI NO redibujo: el bufer no tiene el cuadro";
+      this.trace("[pty]", `tras resize ${label}: ${llegados} B en 900 ms :: ${veredicto}`);
+    }, 900);
+  }
+
+  /**
+   * P-046 — Obliga a la TUI a redibujar el cuadro completo.
+   *
+   * Cuando la sección vuelve, el búfer de xterm puede haberse quedado sin el
+   * cuadro: una rejilla que se encoge mientras el búfer es el de pantalla
+   * alternativa no conserva nada, y al volver a crecer ya no hay qué repintar.
+   * Repintar desde el búfer no arregla eso, porque el búfer es justo lo que
+   * falta. Y la TUI tampoco reacciona por su cuenta: para ella el tamaño nunca
+   * cambió, así que no recibe ningún aviso.
+   *
+   * La única palanca que queda es el propio tamaño: se crece una fila y se
+   * restaura. ConPTY reemite la pantalla y la TUI vuelve a maquetar. Se crece
+   * —nunca se encoge— porque encoger es precisamente lo que descarta contenido.
+   */
+  repaintSoon(): void {
+    if (!this.running || !this.lastSize) {
+      return;
+    }
+    const { cols, rows } = this.lastSize;
+    clearTimeout(this.repaintTimer);
+    this.client.resize(cols, rows + 1);
+    this.repaintTimer = setTimeout(() => {
+      this.repaintTimer = undefined;
+      if (this.running && this.lastSize) {
+        this.client.resize(this.lastSize.cols, this.lastSize.rows);
+      }
+    }, 80);
+    this.trace("[pty]", `redibujado forzado: ${cols}x${rows + 1} -> ${cols}x${rows}`);
   }
 
   dispose(): void {
     if (this.firstDataTimer) {
       clearTimeout(this.firstDataTimer);
       this.firstDataTimer = undefined;
+    }
+    if (this.resizeProbeTimer) {
+      clearTimeout(this.resizeProbeTimer);
+      this.resizeProbeTimer = undefined;
+    }
+    if (this.repaintTimer) {
+      clearTimeout(this.repaintTimer);
+      this.repaintTimer = undefined;
     }
     if (this.exitTimer) {
       clearTimeout(this.exitTimer);

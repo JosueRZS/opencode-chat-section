@@ -183,6 +183,14 @@ function enableWebgl(): void {
  * justo la del cursor. `refresh` de todo el viewport lo cura.
  */
 function repaintAll(): void {
+  // Con la caja colapsada no hay lienzo que recuperar, y vaciar el atlas de
+  // glifos en ese momento es justo lo contrario de lo que hace falta (el log
+  // llegó a registrar `lienzo 410x0 px`). El refit de 300 ms vuelve a intentarlo
+  // con la caja ya asentada.
+  const box = termEl.getBoundingClientRect();
+  if (box.width === 0 || box.height === 0) {
+    return;
+  }
   try {
     term.refresh(0, Math.max(0, term.rows - 1));
   } catch {
@@ -192,7 +200,6 @@ function repaintAll(): void {
   // El informe lleva las dos medidas a propósito: si el lienzo y la rejilla no
   // cuadran, el problema no es el repintado sino el ajuste, y eso se ve aquí
   // sin tener que reproducirlo.
-  const box = termEl.getBoundingClientRect();
   vscode.postMessage({
     type: "repaint",
     cols: term.cols,
@@ -258,9 +265,27 @@ let sentRows = -1;
  * negro debajo. Mientras la sección esté fuera de vista no se mide nada.
  */
 let sectionVisible = true;
+/**
+ * Hasta este instante no se toca la rejilla de xterm.
+ *
+ * Al reabrirse la sección, la caja tarda unos fotogramas en asentarse: el
+ * propio registro llegó a medir `lienzo 410x0 px` justo después de `visible`.
+ * Un `fit` que caiga en ese hueco encoge la rejilla a una fila, y en el búfer
+ * de pantalla alternativa encoger no reflowea: DESCARTA. Al volver a 39 filas
+ * ya no queda cuadro que repintar, y la TUI tampoco redibuja, porque para ella
+ * el tamaño nunca cambió. Sale más barato no medir durante ese hueco que
+ * intentar recuperarse después.
+ */
+let settleUntil = 0;
+/** Margen para que el layout de VS Code se asiente tras reabrir la sección. */
+const SETTLE_MS = 150;
 
 function reportSize(): void {
   if (!sectionVisible) {
+    return;
+  }
+  // Reabierta pero aún sin asentar: medir aquí es lo que encoge la rejilla.
+  if (Date.now() < settleUntil) {
     return;
   }
   // Señal LOCAL, sin esperar al host. El `visibility` recorre el extension host
@@ -269,6 +294,20 @@ function reportSize(): void {
   // fila se manda a ConPTY. Contenedor a 0 es «no hay nada que medir».
   const box = termEl.getBoundingClientRect();
   if (box.width === 0 || box.height === 0) {
+    return;
+  }
+  // Y la caja puede ser pequeña sin llegar a cero: durante el plegado, el
+  // ResizeObserver alcanza a medir unos píxeles y `fit` saca de ahí 0 filas
+  // —o negativas—, porque las calcula dividiendo la altura disponible entre la
+  // del renglón. Una rejilla de 0 filas no se recupera sola: en el búfer de
+  // pantalla alternativa encoger descarta el cuadro, y la TUI no redibuja
+  // porque para ella el tamaño nunca cambió. Se pregunta antes de aplicar, no
+  // después.
+  const dims = fit.proposeDimensions();
+  if (!dims || !Number.isFinite(dims.cols) || !Number.isFinite(dims.rows)) {
+    return;
+  }
+  if (dims.cols < 2 || dims.rows < 2) {
     return;
   }
   try {
@@ -449,10 +488,17 @@ window.addEventListener("message", (e: MessageEvent) => {
         applyStyle(msg.style);
       }
       break;
-    case "visibility":
+    case "visibility": {
       // Mientras la sección esté colapsada no se mide: ver `sectionVisible`.
+      const wasVisible = sectionVisible;
       sectionVisible = msg.visible === true;
+      // Sólo cuenta como reapertura el cambio de estado: el aviso inicial no
+      // asienta nada, y retrasar ahí la primera medida no aporta nada.
+      if (sectionVisible && !wasVisible) {
+        settleUntil = Date.now() + SETTLE_MS;
+      }
       break;
+    }
     case "refit":
       // El host avisa de que la barra acaba de reabrirse. El ResizeObserver no
       // siempre dispara al volver (VS Code colapsa el contenedor sin que

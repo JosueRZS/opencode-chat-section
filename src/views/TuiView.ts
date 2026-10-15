@@ -14,7 +14,11 @@ type InMsg =
   | { type: "input"; data: string }
   | { type: "resize"; cols: number; rows: number }
   | { type: "renderer"; webgl: boolean }
-  /** El webview repintó todo el lienzo (ver `repaintAll`); sólo para el log. */
+  /**
+   * El webview repintó todo el lienzo (ver `repaintAll`). Se registra para el
+   * log y, además, marca el momento en que la rejilla ya está medida: con esa
+   * garantía el PTY puede forzar el redibujado de la TUI (P-046).
+   */
   | { type: "repaint"; cols: number; rows: number; boxW: number; boxH: number }
   | { type: "launch" }
   | { type: "showOutput" }
@@ -376,6 +380,14 @@ export class TuiViewProvider implements vscode.WebviewViewProvider, vscode.Dispo
             this.trace(
               `[view] repintado completo :: xterm ${msg.cols}x${msg.rows} :: lienzo ${msg.boxW}x${msg.boxH} px`,
             );
+            // P-046: repintar desde el búfer no sirve si el búfer es justo lo
+            // que falta, y la TUI no redibuja por su cuenta porque para ella el
+            // tamaño nunca cambió. Este aviso llega DESPUÉS del `fit` del
+            // webview (ver `refit`), o sea con la rejilla ya del tamaño bueno:
+            // es el momento exacto para pedirle a la TUI que vuelva a dibujar.
+            if (msg.boxW > 0 && msg.boxH > 0) {
+              this.pty.repaintSoon();
+            }
             break;
           case "showOutput":
             // P-025: lo que pidió el usuario — la Salida estándar de VS Code
